@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "LINKED - LinkedIn Reactions Widget",
+  "version": "0.1.0",
+  "description": "Add custom quick reactions on LinkedIn and hide built-in reactions you do not want.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "action": {
+    "default_title": "LINKED Settings",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["content.js"],
+      "css": ["widget.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

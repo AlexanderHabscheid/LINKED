@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LINKED</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>LINKED</h1>
+      <p>Customize LinkedIn reactions</p>
+
+      <section>
+        <label for="emoji">Emoji</label>
+        <input id="emoji" maxlength="4" placeholder="🔥" />
+
+        <label for="label">Name</label>
+        <input id="label" maxlength="20" placeholder="Hot take" />
+
+        <label for="linkedInType">Maps to LinkedIn reaction</label>
+        <select id="linkedInType">
+          <option value="like">Like</option>
+          <option value="praise">Celebrate</option>
+          <option value="empathy">Support</option>
+          <option value="interest">Love</option>
+          <option value="appreciation">Insightful</option>
+          <option value="maybe">Funny</option>
+        </select>
+
+        <button id="addBtn">Add Custom Reaction</button>
+      </section>
+
+      <section>
+        <h2>Your Custom Reactions</h2>
+        <ul id="customList"></ul>
+      </section>
+
+      <section>
+        <h2>Hide Built-in LinkedIn Reactions</h2>
+        <div id="builtinToggles"></div>
+      </section>
+
+      <p class="note">Reload LinkedIn tabs after updating settings.</p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

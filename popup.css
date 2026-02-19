@@ -1,0 +1,102 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px;
+  background: #f4f8fc;
+  color: #1f2a37;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+h2 {
+  font-size: 14px;
+  margin: 14px 0 8px;
+}
+
+p {
+  margin: 6px 0 10px;
+  font-size: 12px;
+}
+
+section {
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  margin: 4px 0;
+}
+
+input,
+select,
+button {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  border: 1px solid #c2cedf;
+  font-size: 13px;
+  padding: 7px;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: #0a66c2;
+  color: #fff;
+  font-weight: 600;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px;
+  border-bottom: 1px solid #edf2f8;
+}
+
+li:last-child {
+  border-bottom: 0;
+}
+
+li button {
+  margin: 0;
+  width: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: #de350b;
+}
+
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.note {
+  color: #4b5563;
+  margin-top: 6px;
+}
