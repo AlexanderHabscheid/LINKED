@@ -11,19 +11,47 @@
       <header class="hero">
         <div>
           <h1>LINKED</h1>
-          <p>Build a custom LinkedIn reaction tray that still sends native reactions.</p>
+          <p>Create personal reactions in a native LinkedIn-style tray.</p>
         </div>
-        <span class="hero-badge">BETA</span>
+        <span class="hero-badge">STUDIO</span>
       </header>
 
       <section class="card card-accent">
         <h2>Create Reaction</h2>
 
-        <label for="emoji">Emoji</label>
-        <input id="emoji" maxlength="16" placeholder="🔥" />
-
         <label for="label">Name</label>
         <input id="label" maxlength="20" placeholder="Hot take" />
+
+        <label for="assetMode">Visual Type</label>
+        <select id="assetMode">
+          <option value="emoji">Emoji</option>
+          <option value="upload">Upload Image</option>
+          <option value="avatar">Avatar Sticker</option>
+        </select>
+
+        <div id="emojiFields">
+          <label for="emoji">Emoji</label>
+          <input id="emoji" maxlength="16" placeholder="🔥" />
+        </div>
+
+        <div id="uploadFields" class="hidden">
+          <label for="imageFile">Image</label>
+          <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+          <div class="asset-preview-wrap">
+            <img id="uploadPreview" class="asset-preview hidden" alt="Uploaded reaction preview" />
+          </div>
+        </div>
+
+        <div id="avatarFields" class="hidden">
+          <label for="avatarInitials">Initials</label>
+          <input id="avatarInitials" maxlength="3" placeholder="AH" />
+
+          <label for="avatarMood">Mood</label>
+          <input id="avatarMood" maxlength="2" placeholder="😎" />
+
+          <label for="avatarColor">Avatar Color</label>
+          <input id="avatarColor" type="color" value="#0a66c2" />
+        </div>
 
         <label for="linkedInType">Maps to LinkedIn reaction</label>
         <select id="linkedInType">
