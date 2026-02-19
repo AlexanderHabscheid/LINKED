@@ -34,11 +34,18 @@ const customListEl = document.getElementById("customList");
 const builtinTogglesEl = document.getElementById("builtinToggles");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
+const previewTrayEl = document.getElementById("previewTray");
+const feedbackEl = document.getElementById("formFeedback");
 
 const REACTION_TYPES = new Set(REACTIONS.map((item) => item.type));
 
 function normalizeType(type) {
   return TYPE_ALIASES[String(type || "").trim().toLowerCase()] || null;
+}
+
+function setFeedback(message, isError = false) {
+  feedbackEl.textContent = message || "";
+  feedbackEl.classList.toggle("error", Boolean(isError));
 }
 
 function displayType(type) {
@@ -82,6 +89,39 @@ function sanitizeHiddenBuiltins(items) {
   return output;
 }
 
+function draftFromInput() {
+  return sanitizeCustomReaction({
+    emoji: emojiEl.value,
+    label: labelEl.value,
+    linkedInType: linkedInTypeEl.value
+  });
+}
+
+function renderPreviewTray(items, draft = null) {
+  previewTrayEl.innerHTML = "";
+
+  const allItems = [...items];
+  if (draft) {
+    allItems.push({ ...draft, __draft: true });
+  }
+
+  if (!allItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "preview-empty";
+    empty.textContent = "No reactions yet";
+    previewTrayEl.appendChild(empty);
+    return;
+  }
+
+  for (const item of allItems) {
+    const el = document.createElement("div");
+    el.className = `preview-item${item.__draft ? " draft" : ""}`;
+    el.title = `${item.label} -> ${displayType(item.linkedInType)}`;
+    el.textContent = item.emoji;
+    previewTrayEl.appendChild(el);
+  }
+}
+
 async function getState() {
   return chrome.storage.sync.get(DEFAULTS);
 }
@@ -119,6 +159,7 @@ async function loadState() {
   const state = await migrateStateIfNeeded();
   renderCustomList(state.customReactions);
   renderBuiltinToggles(state.hiddenBuiltins);
+  renderPreviewTray(state.customReactions, draftFromInput());
 }
 
 function renderCustomList(items) {
@@ -185,6 +226,7 @@ async function removeCustom(index) {
   const state = await migrateStateIfNeeded();
   state.customReactions.splice(index, 1);
   await saveState({ customReactions: state.customReactions });
+  setFeedback("Removed reaction.");
   loadState();
 }
 
@@ -200,6 +242,7 @@ async function moveCustom(index, offset) {
   next.splice(nextIndex, 0, item);
 
   await saveState({ customReactions: next });
+  setFeedback("Updated order.");
   loadState();
 }
 
@@ -215,25 +258,52 @@ async function toggleBuiltin(type, shouldHide) {
   await saveState({ hiddenBuiltins: Array.from(set) });
 }
 
-addBtn.addEventListener("click", async () => {
-  const item = sanitizeCustomReaction({
-    emoji: emojiEl.value,
-    label: labelEl.value,
-    linkedInType: linkedInTypeEl.value
-  });
+function validateInputs() {
+  const emoji = emojiEl.value.trim();
+  const label = labelEl.value.trim();
+  const linkedInType = normalizeType(linkedInTypeEl.value);
 
-  if (!item) {
-    return;
+  if (!emoji) {
+    return "Enter an emoji or symbol.";
   }
 
-  const state = await migrateStateIfNeeded();
-  state.customReactions.push(item);
+  if (!label) {
+    return "Enter a reaction name.";
+  }
 
-  await saveState({ customReactions: state.customReactions });
+  if (!linkedInType) {
+    return "Choose a LinkedIn mapping type.";
+  }
 
-  emojiEl.value = "";
-  labelEl.value = "";
-  loadState();
+  return null;
+}
+
+addBtn.addEventListener("click", async () => {
+  try {
+    const validationError = validateInputs();
+    if (validationError) {
+      setFeedback(validationError, true);
+      return;
+    }
+
+    const item = draftFromInput();
+    if (!item) {
+      setFeedback("Could not parse reaction input.", true);
+      return;
+    }
+
+    const state = await migrateStateIfNeeded();
+    state.customReactions.push(item);
+
+    await saveState({ customReactions: state.customReactions });
+
+    emojiEl.value = "";
+    labelEl.value = "";
+    setFeedback("Added reaction.");
+    loadState();
+  } catch {
+    setFeedback("Failed to add reaction. Try again.", true);
+  }
 });
 
 exportBtn.addEventListener("click", async () => {
@@ -260,13 +330,25 @@ importBtn.addEventListener("click", async () => {
 
     const next = input.map(sanitizeCustomReaction).filter(Boolean);
     await saveState({ customReactions: next });
+    setFeedback("Imported reactions.");
     loadState();
   } catch {
     importBtn.textContent = "Invalid";
+    setFeedback("Import failed. Invalid JSON format.", true);
     setTimeout(() => {
       importBtn.textContent = "Import";
     }, 900);
   }
 });
+
+for (const el of [emojiEl, labelEl, linkedInTypeEl]) {
+  el.addEventListener("input", async () => {
+    const state = await migrateStateIfNeeded();
+    renderPreviewTray(state.customReactions, draftFromInput());
+    if (feedbackEl.classList.contains("error")) {
+      setFeedback("");
+    }
+  });
+}
 
 loadState();

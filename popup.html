@@ -13,7 +13,7 @@
 
       <section>
         <label for="emoji">Emoji</label>
-        <input id="emoji" maxlength="4" placeholder="🔥" />
+        <input id="emoji" maxlength="16" placeholder="🔥" />
 
         <label for="label">Name</label>
         <input id="label" maxlength="20" placeholder="Hot take" />
@@ -28,15 +28,21 @@
           <option value="funny">Funny</option>
         </select>
 
-        <button id="addBtn">Add Custom Reaction</button>
+        <button id="addBtn" type="button">Add Custom Reaction</button>
+        <p id="formFeedback" class="feedback" aria-live="polite"></p>
+      </section>
+
+      <section>
+        <h2>Live Tray Preview</h2>
+        <div id="previewTray" class="preview-tray"></div>
       </section>
 
       <section>
         <h2>Your Custom Tray</h2>
         <ul id="customList"></ul>
         <div class="row-actions">
-          <button id="exportBtn" class="secondary">Export</button>
-          <button id="importBtn" class="secondary">Import</button>
+          <button id="exportBtn" class="secondary" type="button">Export</button>
+          <button id="importBtn" class="secondary" type="button">Import</button>
         </div>
       </section>
 
