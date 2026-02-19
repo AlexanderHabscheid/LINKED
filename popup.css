@@ -4,7 +4,7 @@
 }
 
 body {
-  width: 320px;
+  width: 340px;
   margin: 0;
   padding: 12px;
   background: #f4f8fc;
@@ -60,6 +60,10 @@ button {
   font-weight: 600;
 }
 
+button.secondary {
+  background: #334155;
+}
+
 ul {
   list-style: none;
   padding: 0;
@@ -80,11 +84,19 @@ li:last-child {
   border-bottom: 0;
 }
 
-li button {
-  margin: 0;
+.item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.item-actions button {
   width: auto;
+  margin: 0;
   padding: 4px 8px;
   font-size: 11px;
+}
+
+.item-actions .danger {
   background: #de350b;
 }
 
@@ -94,6 +106,16 @@ li button {
   align-items: center;
   font-size: 12px;
   margin-bottom: 5px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.row-actions button {
+  margin: 0;
 }
 
 .note {

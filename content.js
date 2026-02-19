@@ -12,7 +12,18 @@ const TYPE_TO_LABEL = {
   maybe: "Funny"
 };
 
-const REACTION_TYPES = Object.keys(TYPE_TO_LABEL);
+const TYPE_COLORS = {
+  like: "#378fe9",
+  praise: "#6dae4f",
+  empathy: "#df704d",
+  interest: "#b28ac7",
+  appreciation: "#edb541",
+  maybe: "#52b7c7"
+};
+
+const TYPE_VALUES = Object.keys(TYPE_TO_LABEL);
+const REACTION_LABELS = Object.values(TYPE_TO_LABEL);
+
 let cachedState = { ...STORAGE_DEFAULTS };
 
 function wait(ms) {
@@ -33,10 +44,62 @@ function isVisible(element) {
   return rect.width > 0 && rect.height > 0;
 }
 
-function isLikeButton(button) {
-  const label = textOf(button).toLowerCase();
+function reactionTypeFromText(input) {
+  const label = (input || "").toLowerCase();
+  for (const [type, visibleLabel] of Object.entries(TYPE_TO_LABEL)) {
+    if (label.includes(visibleLabel.toLowerCase())) {
+      return type;
+    }
+  }
+  return null;
+}
+
+function looksLikeReactionButton(node) {
+  if (!node) return false;
+  const label = textOf(node);
   if (!label) return false;
-  return label.includes("like") || label.includes("react");
+  return REACTION_LABELS.some((reactionLabel) => label.includes(reactionLabel));
+}
+
+function collectReactionButtons(root) {
+  const candidates = root.querySelectorAll("button[aria-label], [role='button'][aria-label]");
+  return Array.from(candidates).filter((node) => isVisible(node) && looksLikeReactionButton(node));
+}
+
+function collectTrayCandidates() {
+  const buttons = collectReactionButtons(document);
+  const seen = new Set();
+  const trays = [];
+
+  for (const button of buttons) {
+    let current = button.parentElement;
+    let depth = 0;
+
+    while (current && depth < 6) {
+      const key = current;
+      if (!seen.has(key)) {
+        const reactionButtons = collectReactionButtons(current);
+        if (reactionButtons.length >= 3) {
+          seen.add(key);
+          trays.push({ element: current, buttons: reactionButtons });
+        }
+      }
+      current = current.parentElement;
+      depth += 1;
+    }
+  }
+
+  return trays;
+}
+
+function getLikeButtonInActionBar(actionBar) {
+  for (const button of actionBar.querySelectorAll("button")) {
+    const label = textOf(button).toLowerCase();
+    if (label.includes("like") || label.includes("react")) {
+      return button;
+    }
+  }
+  return null;
 }
 
 function getActionBars() {
@@ -45,88 +108,171 @@ function getActionBars() {
   );
 }
 
-function getLikeButtonInActionBar(actionBar) {
-  const buttons = actionBar.querySelectorAll("button");
-  for (const button of buttons) {
-    if (isLikeButton(button)) {
-      return button;
+function distance(a, b) {
+  const ax = a.left + a.width / 2;
+  const ay = a.top + a.height / 2;
+  const bx = b.left + b.width / 2;
+  const by = b.top + b.height / 2;
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function findNativeTrayForLikeButton(likeButton) {
+  const likeRect = likeButton.getBoundingClientRect();
+  const trays = collectTrayCandidates().filter((tray) => isVisible(tray.element));
+
+  if (!trays.length) {
+    return null;
+  }
+
+  trays.sort((a, b) => {
+    const aRect = a.element.getBoundingClientRect();
+    const bRect = b.element.getBoundingClientRect();
+
+    const aNear = distance(aRect, likeRect);
+    const bNear = distance(bRect, likeRect);
+
+    const aScore = aNear - a.buttons.length * 18;
+    const bScore = bNear - b.buttons.length * 18;
+
+    return aScore - bScore;
+  });
+
+  return trays[0].element;
+}
+
+function clearNativeHiding(root) {
+  for (const node of root.querySelectorAll("[data-linked-hidden-native='true']")) {
+    node.style.display = "";
+    node.style.visibility = "";
+    node.style.pointerEvents = "";
+    node.style.width = "";
+    node.style.height = "";
+    node.style.margin = "";
+    node.style.padding = "";
+    node.removeAttribute("data-linked-hidden-native");
+  }
+}
+
+function hideNativeButtonsInTray(tray, mappedButtons) {
+  clearNativeHiding(tray);
+
+  for (const button of mappedButtons) {
+    button.style.visibility = "hidden";
+    button.style.pointerEvents = "none";
+    button.style.width = "0";
+    button.style.height = "0";
+    button.style.margin = "0";
+    button.style.padding = "0";
+    button.setAttribute("data-linked-hidden-native", "true");
+  }
+}
+
+function findNativeMappedButtons(tray) {
+  const map = new Map();
+  const allButtons = collectReactionButtons(tray);
+
+  for (const button of allButtons) {
+    const type = reactionTypeFromText(textOf(button));
+    if (!type) continue;
+    if (!map.has(type)) {
+      map.set(type, button);
     }
   }
-  return null;
+
+  return map;
 }
 
-function getPostContainerFromButton(button) {
-  return (
-    button.closest("article") ||
-    button.closest(".feed-shared-update-v2") ||
-    button.closest(".occludable-update") ||
-    document.body
+async function fallbackApplyReaction(likeButton, type) {
+  likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+  likeButton.click();
+  await wait(220);
+
+  const label = TYPE_TO_LABEL[type] || "Like";
+  const options = document.querySelectorAll(
+    `button[aria-label*='${label}'], [role='button'][aria-label*='${label}']`
   );
-}
 
-function removePanel(actionBar) {
-  const existing = actionBar.querySelector(".linked-inline-panel");
-  if (existing) {
-    existing.remove();
+  for (const option of options) {
+    if (isVisible(option) && looksLikeReactionButton(option)) {
+      option.click();
+      return;
+    }
   }
 }
 
-function buildReactionButton(postLikeButton, reaction) {
+function createCustomButton(customReaction, mappedButton, likeButton) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "linked-inline-reaction";
-  button.textContent = reaction.emoji;
-  button.setAttribute("aria-label", `${reaction.label} (${TYPE_TO_LABEL[reaction.linkedInType] || reaction.linkedInType})`);
-  button.title = `${reaction.label} -> ${TYPE_TO_LABEL[reaction.linkedInType] || reaction.linkedInType}`;
+  button.className = "linked-native-reaction";
+  button.textContent = customReaction.emoji;
+
+  const type = TYPE_VALUES.includes(customReaction.linkedInType)
+    ? customReaction.linkedInType
+    : "like";
+
+  button.style.setProperty("--linked-type-color", TYPE_COLORS[type]);
+  button.setAttribute("aria-label", customReaction.label);
+  button.title = `${customReaction.label} -> ${TYPE_TO_LABEL[type]}`;
 
   button.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await applyReactionToPost(postLikeButton, reaction.linkedInType);
+
+    if (mappedButton) {
+      mappedButton.click();
+      return;
+    }
+
+    await fallbackApplyReaction(likeButton, type);
   });
 
   return button;
 }
 
-function createCustomPanel(actionBar, likeButton, customReactions) {
-  removePanel(actionBar);
-
-  const panel = document.createElement("div");
-  panel.className = "linked-inline-panel";
-
-  if (!customReactions.length) {
-    const empty = document.createElement("span");
-    empty.className = "linked-inline-empty";
-    empty.textContent = "Configure LINKED reactions in the extension popup";
-    panel.appendChild(empty);
-    actionBar.appendChild(panel);
-    return panel;
-  }
-
-  for (const reaction of customReactions) {
-    panel.appendChild(buildReactionButton(likeButton, reaction));
-  }
-
-  actionBar.appendChild(panel);
-  return panel;
-}
-
-function showPanel(actionBar, likeButton) {
-  const existing = actionBar.querySelector(".linked-inline-panel");
+function mountReplacementTray(tray, likeButton) {
+  const existing = tray.querySelector(".linked-native-shell");
   if (existing) {
-    existing.classList.add("linked-visible");
-    return existing;
+    existing.remove();
   }
 
-  const panel = createCustomPanel(actionBar, likeButton, cachedState.customReactions);
-  panel.classList.add("linked-visible");
-  return panel;
+  const nativeMap = findNativeMappedButtons(tray);
+  hideNativeButtonsInTray(tray, Array.from(nativeMap.values()));
+
+  const shell = document.createElement("div");
+  shell.className = "linked-native-shell";
+
+  const validCustom = cachedState.customReactions.filter(
+    (item) => item && item.emoji && item.label && TYPE_VALUES.includes(item.linkedInType)
+  );
+
+  if (!validCustom.length) {
+    const note = document.createElement("span");
+    note.className = "linked-native-empty";
+    note.textContent = "Add custom reactions in LINKED popup";
+    shell.appendChild(note);
+  } else {
+    for (const customReaction of validCustom) {
+      shell.appendChild(
+        createCustomButton(customReaction, nativeMap.get(customReaction.linkedInType), likeButton)
+      );
+    }
+  }
+
+  tray.appendChild(shell);
 }
 
-function hidePanel(actionBar) {
-  const panel = actionBar.querySelector(".linked-inline-panel");
-  if (panel) {
-    panel.classList.remove("linked-visible");
+async function enhanceLikeButton(likeButton) {
+  if (!isVisible(likeButton)) {
+    return;
+  }
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    await wait(70);
+    const tray = findNativeTrayForLikeButton(likeButton);
+    if (tray) {
+      mountReplacementTray(tray, likeButton);
+      return;
+    }
   }
 }
 
@@ -140,183 +286,85 @@ function bindActionBar(actionBar) {
     return;
   }
 
-  let hideTimer = null;
-
-  const startHideTimer = () => {
-    hideTimer = window.setTimeout(() => hidePanel(actionBar), 180);
-  };
-
-  const cancelHideTimer = () => {
-    if (hideTimer !== null) {
-      window.clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-  };
-
   likeButton.addEventListener("mouseenter", () => {
-    cancelHideTimer();
-    showPanel(actionBar, likeButton);
+    enhanceLikeButton(likeButton);
   });
 
   likeButton.addEventListener("focus", () => {
-    cancelHideTimer();
-    showPanel(actionBar, likeButton);
+    enhanceLikeButton(likeButton);
   });
-
-  likeButton.addEventListener("mouseleave", startHideTimer);
-  likeButton.addEventListener("blur", startHideTimer);
-
-  actionBar.addEventListener("mouseenter", cancelHideTimer);
-  actionBar.addEventListener("mouseleave", startHideTimer);
 
   actionBar.dataset.linkedBound = "true";
 }
 
-function getReactionLabel(type) {
-  return TYPE_TO_LABEL[type] || "Like";
-}
-
-function isReactionOptionElement(element) {
-  if (!element) return false;
-  const label = textOf(element);
-  if (!label) return false;
-
-  const isButtonLike =
-    element.matches("button") ||
-    element.getAttribute("role") === "button" ||
-    element.closest("button") !== null;
-
-  if (!isButtonLike) return false;
-
-  return Object.values(TYPE_TO_LABEL).some((reactionLabel) => label.includes(reactionLabel));
-}
-
-function distanceBetween(aRect, bRect) {
-  const ax = aRect.left + aRect.width / 2;
-  const ay = aRect.top + aRect.height / 2;
-  const bx = bRect.left + bRect.width / 2;
-  const by = bRect.top + bRect.height / 2;
-  return Math.hypot(ax - bx, ay - by);
-}
-
-function findBestReactionOption(likeButton, type) {
-  const label = getReactionLabel(type);
-  const selectors = [
-    `button[aria-label*='${label}']`,
-    `[role='button'][aria-label*='${label}']`,
-    `li button[aria-label*='${label}']`
-  ];
-
-  const postContainer = getPostContainerFromButton(likeButton);
-  const candidates = [];
-
-  for (const selector of selectors) {
-    for (const node of document.querySelectorAll(selector)) {
-      if (!isVisible(node)) continue;
-      if (node.closest(".linked-inline-panel")) continue;
-      if (!isReactionOptionElement(node)) continue;
-
-      const insidePost = postContainer.contains(node);
-      const score = insidePost ? 0 : 1;
-      candidates.push({ node, score });
-    }
-  }
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  const likeRect = likeButton.getBoundingClientRect();
-  candidates.sort((a, b) => {
-    if (a.score !== b.score) {
-      return a.score - b.score;
-    }
-    return distanceBetween(a.node.getBoundingClientRect(), likeRect) - distanceBetween(b.node.getBoundingClientRect(), likeRect);
-  });
-
-  return candidates[0].node;
-}
-
-async function applyReactionToPost(likeButton, type) {
-  likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-  likeButton.click();
-
-  await wait(220);
-
-  const option = findBestReactionOption(likeButton, type);
-  if (!option) {
-    return;
-  }
-
-  option.click();
-}
-
-function clearPreviousHides() {
+function clearGlobalHiddenBuiltins() {
   for (const node of document.querySelectorAll("[data-linked-hidden='true']")) {
     node.style.display = "";
     node.removeAttribute("data-linked-hidden");
   }
 }
 
-function hideBuiltInReactions() {
-  clearPreviousHides();
+function applyHiddenBuiltins() {
+  clearGlobalHiddenBuiltins();
 
   if (!cachedState.hiddenBuiltins.length) {
     return;
   }
 
-  const hiddenLabels = cachedState.hiddenBuiltins
-    .filter((type) => REACTION_TYPES.includes(type))
+  const labelsToHide = cachedState.hiddenBuiltins
+    .filter((type) => TYPE_VALUES.includes(type))
     .map((type) => TYPE_TO_LABEL[type]);
 
-  if (!hiddenLabels.length) {
+  if (!labelsToHide.length) {
     return;
   }
 
-  const clickableNodes = document.querySelectorAll("button[aria-label], [role='button'][aria-label], li button[aria-label]");
-
-  for (const node of clickableNodes) {
+  const nodes = document.querySelectorAll("button[aria-label], [role='button'][aria-label], li button[aria-label]");
+  for (const node of nodes) {
     if (!isVisible(node)) continue;
-    if (node.closest(".linked-inline-panel")) continue;
+    if (node.closest(".linked-native-shell")) continue;
 
     const label = textOf(node);
     if (!label) continue;
 
-    const matchHidden = hiddenLabels.some((hiddenLabel) => label.includes(hiddenLabel));
-    const looksLikeReaction = Object.values(TYPE_TO_LABEL).some((reactionLabel) => label.includes(reactionLabel));
+    const shouldHide = labelsToHide.some((target) => label.includes(target));
+    if (!shouldHide) continue;
+    if (!looksLikeReactionButton(node)) continue;
 
-    if (matchHidden && looksLikeReaction) {
-      node.style.display = "none";
-      node.setAttribute("data-linked-hidden", "true");
+    node.style.display = "none";
+    node.setAttribute("data-linked-hidden", "true");
+  }
+}
+
+function refreshMountedTrays() {
+  const shells = document.querySelectorAll(".linked-native-shell");
+  for (const shell of shells) {
+    const tray = shell.parentElement;
+    if (!tray) continue;
+
+    let actionBar = tray.previousElementSibling;
+    while (actionBar && !actionBar.matches("div.feed-shared-social-action-bar, div.social-details-social-actions")) {
+      actionBar = actionBar.previousElementSibling;
     }
+
+    const likeButton = actionBar ? getLikeButtonInActionBar(actionBar) : null;
+    mountReplacementTray(tray, likeButton || document.body);
   }
 }
 
-function bindAllActionBars() {
-  for (const actionBar of getActionBars()) {
-    bindActionBar(actionBar);
-  }
-}
-
-function refreshPanels() {
-  for (const actionBar of getActionBars()) {
-    if (actionBar.querySelector(".linked-inline-panel")) {
-      const likeButton = getLikeButtonInActionBar(actionBar);
-      if (!likeButton) continue;
-      createCustomPanel(actionBar, likeButton, cachedState.customReactions);
-    }
-  }
-}
-
-async function loadStateFromStorage() {
+async function loadState() {
   cachedState = await chrome.storage.sync.get(STORAGE_DEFAULTS);
 }
 
 async function refreshAll() {
-  await loadStateFromStorage();
-  bindAllActionBars();
-  refreshPanels();
-  hideBuiltInReactions();
+  await loadState();
+
+  for (const actionBar of getActionBars()) {
+    bindActionBar(actionBar);
+  }
+
+  refreshMountedTrays();
+  applyHiddenBuiltins();
 }
 
 chrome.storage.onChanged.addListener(async () => {
@@ -324,10 +372,15 @@ chrome.storage.onChanged.addListener(async () => {
 });
 
 const observer = new MutationObserver(() => {
-  bindAllActionBars();
-  hideBuiltInReactions();
+  for (const actionBar of getActionBars()) {
+    bindActionBar(actionBar);
+  }
+  applyHiddenBuiltins();
 });
 
-observer.observe(document.documentElement, { childList: true, subtree: true });
+observer.observe(document.documentElement, {
+  childList: true,
+  subtree: true
+});
 
 refreshAll();

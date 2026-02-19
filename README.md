@@ -1,17 +1,17 @@
 # LINKED
 
-Chrome extension for LinkedIn that lets users customize reaction behavior directly on each post.
+Chrome extension for LinkedIn that lets users customize the reaction tray directly under each post's Like button.
 
-## Core behavior
+## What changed
 
-- Custom reactions appear inline under a post's Like button on hover/focus.
-- Each custom item maps to one native LinkedIn reaction type.
-- You can hide built-in LinkedIn reactions from the picker.
-- Settings are stored with `chrome.storage.sync`.
+- In-place tray replacement: when LinkedIn shows reaction options, LINKED replaces the visible options with your custom tray in the same UI position.
+- Custom mapping: each custom reaction maps to one native LinkedIn reaction type.
+- Built-in hide controls: selected native reactions can be hidden.
+- Popup upgrades: reorder custom reactions and import/export presets.
 
-## Important constraint
+## Important limitation
 
-LINKED customizes the LinkedIn UI and interaction flow, but it does not create new backend LinkedIn reaction types. All sends map to LinkedIn's official reaction set.
+This is a UI-level customization. LinkedIn still receives one of its native reaction types. LINKED does not create new backend LinkedIn reaction types.
 
 ## Install (Developer mode)
 
@@ -24,6 +24,6 @@ LINKED customizes the LinkedIn UI and interaction flow, but it does not create n
 ## Files
 
 - `manifest.json`: extension config
-- `popup.*`: settings UI for add/delete/hide options
-- `content.js`: per-post reaction panel, selectors, and mapping logic
-- `widget.css`: inline panel styling
+- `popup.*`: reaction management UI (add/delete/reorder/import/export)
+- `content.js`: tray replacement and mapped click behavior
+- `widget.css`: tray styling designed to feel native to LinkedIn
