@@ -1,6 +1,14 @@
+.linked-native-host {
+  position: relative;
+}
+
 .linked-native-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 8px 10px;
   border-radius: 999px;
@@ -8,6 +16,7 @@
   background: #ffffff;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
   max-width: 100%;
+  min-height: 54px;
   overflow-x: auto;
 }
 

@@ -237,6 +237,14 @@ function clearNativeHiding(root) {
     node.style.padding = "";
     node.removeAttribute("data-linked-hidden-native");
   }
+
+  for (const node of root.querySelectorAll("[data-linked-muted-native='true']")) {
+    node.style.opacity = "";
+    node.style.pointerEvents = "";
+    node.removeAttribute("data-linked-muted-native");
+  }
+
+  root.classList.remove("linked-native-host");
 }
 
 function findNativeMappedButtons(tray) {
@@ -265,6 +273,18 @@ function hideNativeButtonsInTray(tray, mappedButtons) {
     button.style.margin = "0";
     button.style.padding = "0";
     button.setAttribute("data-linked-hidden-native", "true");
+  }
+}
+
+function muteNativeTrayChildren(tray) {
+  for (const child of tray.children) {
+    if (child.classList?.contains("linked-native-shell")) {
+      continue;
+    }
+
+    child.style.opacity = "0";
+    child.style.pointerEvents = "none";
+    child.setAttribute("data-linked-muted-native", "true");
   }
 }
 
@@ -322,6 +342,8 @@ function mountReplacementTray(tray, likeButton) {
 
   const nativeMap = findNativeMappedButtons(tray);
   hideNativeButtonsInTray(tray, Array.from(nativeMap.values()));
+  muteNativeTrayChildren(tray);
+  tray.classList.add("linked-native-host");
 
   const shell = document.createElement("div");
   shell.className = "linked-native-shell";
