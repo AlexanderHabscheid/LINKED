@@ -3,14 +3,28 @@ const DEFAULTS = {
   hiddenBuiltins: []
 };
 
-const BUILTINS = [
+const REACTIONS = [
   { type: "like", label: "Like" },
-  { type: "praise", label: "Celebrate" },
-  { type: "empathy", label: "Support" },
-  { type: "interest", label: "Love" },
-  { type: "appreciation", label: "Insightful" },
-  { type: "maybe", label: "Funny" }
+  { type: "celebrate", label: "Celebrate" },
+  { type: "support", label: "Support" },
+  { type: "love", label: "Love" },
+  { type: "insightful", label: "Insightful" },
+  { type: "funny", label: "Funny" }
 ];
+
+const TYPE_ALIASES = {
+  like: "like",
+  celebrate: "celebrate",
+  support: "support",
+  love: "love",
+  insightful: "insightful",
+  funny: "funny",
+  praise: "celebrate",
+  empathy: "support",
+  interest: "love",
+  appreciation: "insightful",
+  maybe: "funny"
+};
 
 const emojiEl = document.getElementById("emoji");
 const labelEl = document.getElementById("label");
@@ -21,8 +35,15 @@ const builtinTogglesEl = document.getElementById("builtinToggles");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 
+const REACTION_TYPES = new Set(REACTIONS.map((item) => item.type));
+
+function normalizeType(type) {
+  return TYPE_ALIASES[String(type || "").trim().toLowerCase()] || null;
+}
+
 function displayType(type) {
-  const hit = BUILTINS.find((x) => x.type === type);
+  const normalized = normalizeType(type);
+  const hit = REACTIONS.find((item) => item.type === normalized);
   return hit ? hit.label : type;
 }
 
@@ -31,24 +52,71 @@ function sanitizeCustomReaction(item) {
 
   const emoji = String(item.emoji || "").trim();
   const label = String(item.label || "").trim();
-  const linkedInType = String(item.linkedInType || "").trim();
+  const linkedInType = normalizeType(item.linkedInType);
 
-  if (!emoji || !label) return null;
-  if (!BUILTINS.some((x) => x.type === linkedInType)) return null;
+  if (!emoji || !label || !linkedInType || !REACTION_TYPES.has(linkedInType)) {
+    return null;
+  }
 
   return { emoji, label, linkedInType };
+}
+
+function sanitizeHiddenBuiltins(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const output = [];
+  const seen = new Set();
+
+  for (const item of items) {
+    const normalized = normalizeType(item);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    output.push(normalized);
+  }
+
+  return output;
 }
 
 async function getState() {
   return chrome.storage.sync.get(DEFAULTS);
 }
 
-async function saveCustomReactions(customReactions) {
-  await chrome.storage.sync.set({ customReactions });
+async function saveState(next) {
+  await chrome.storage.sync.set(next);
+}
+
+async function migrateStateIfNeeded() {
+  const state = await getState();
+
+  const sanitizedCustom = (state.customReactions || [])
+    .map(sanitizeCustomReaction)
+    .filter(Boolean);
+
+  const sanitizedHidden = sanitizeHiddenBuiltins(state.hiddenBuiltins);
+
+  const customChanged = JSON.stringify(sanitizedCustom) !== JSON.stringify(state.customReactions || []);
+  const hiddenChanged = JSON.stringify(sanitizedHidden) !== JSON.stringify(state.hiddenBuiltins || []);
+
+  if (customChanged || hiddenChanged) {
+    await saveState({
+      customReactions: sanitizedCustom,
+      hiddenBuiltins: sanitizedHidden
+    });
+  }
+
+  return {
+    customReactions: sanitizedCustom,
+    hiddenBuiltins: sanitizedHidden
+  };
 }
 
 async function loadState() {
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   renderCustomList(state.customReactions);
   renderBuiltinToggles(state.hiddenBuiltins);
 }
@@ -98,15 +166,15 @@ function renderCustomList(items) {
 
 function renderBuiltinToggles(hiddenBuiltins) {
   builtinTogglesEl.innerHTML = "";
-  BUILTINS.forEach((builtin) => {
+  REACTIONS.forEach((reaction) => {
     const row = document.createElement("label");
     row.className = "toggle-row";
-    row.innerHTML = `<span>${builtin.label}</span>`;
+    row.innerHTML = `<span>${reaction.label}</span>`;
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = hiddenBuiltins.includes(builtin.type);
-    checkbox.addEventListener("change", () => toggleBuiltin(builtin.type, checkbox.checked));
+    checkbox.checked = hiddenBuiltins.includes(reaction.type);
+    checkbox.addEventListener("change", () => toggleBuiltin(reaction.type, checkbox.checked));
 
     row.appendChild(checkbox);
     builtinTogglesEl.appendChild(row);
@@ -114,14 +182,14 @@ function renderBuiltinToggles(hiddenBuiltins) {
 }
 
 async function removeCustom(index) {
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   state.customReactions.splice(index, 1);
-  await saveCustomReactions(state.customReactions);
+  await saveState({ customReactions: state.customReactions });
   loadState();
 }
 
 async function moveCustom(index, offset) {
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   const nextIndex = index + offset;
   if (nextIndex < 0 || nextIndex >= state.customReactions.length) {
     return;
@@ -131,19 +199,20 @@ async function moveCustom(index, offset) {
   const [item] = next.splice(index, 1);
   next.splice(nextIndex, 0, item);
 
-  await saveCustomReactions(next);
+  await saveState({ customReactions: next });
   loadState();
 }
 
 async function toggleBuiltin(type, shouldHide) {
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   const set = new Set(state.hiddenBuiltins);
   if (shouldHide) {
     set.add(type);
   } else {
     set.delete(type);
   }
-  await chrome.storage.sync.set({ hiddenBuiltins: [...set] });
+
+  await saveState({ hiddenBuiltins: Array.from(set) });
 }
 
 addBtn.addEventListener("click", async () => {
@@ -157,9 +226,10 @@ addBtn.addEventListener("click", async () => {
     return;
   }
 
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   state.customReactions.push(item);
-  await saveCustomReactions(state.customReactions);
+
+  await saveState({ customReactions: state.customReactions });
 
   emojiEl.value = "";
   labelEl.value = "";
@@ -167,8 +237,9 @@ addBtn.addEventListener("click", async () => {
 });
 
 exportBtn.addEventListener("click", async () => {
-  const state = await getState();
+  const state = await migrateStateIfNeeded();
   const payload = JSON.stringify({ customReactions: state.customReactions }, null, 2);
+
   await navigator.clipboard.writeText(payload);
   exportBtn.textContent = "Copied";
   setTimeout(() => {
@@ -188,7 +259,7 @@ importBtn.addEventListener("click", async () => {
     }
 
     const next = input.map(sanitizeCustomReaction).filter(Boolean);
-    await saveCustomReactions(next);
+    await saveState({ customReactions: next });
     loadState();
   } catch {
     importBtn.textContent = "Invalid";
