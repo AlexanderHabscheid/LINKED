@@ -8,10 +8,17 @@
   </head>
   <body>
     <main>
-      <h1>LINKED</h1>
-      <p>Customize LinkedIn reaction tray</p>
+      <header class="hero">
+        <div>
+          <h1>LINKED</h1>
+          <p>Build a custom LinkedIn reaction tray that still sends native reactions.</p>
+        </div>
+        <span class="hero-badge">BETA</span>
+      </header>
 
-      <section>
+      <section class="card card-accent">
+        <h2>Create Reaction</h2>
+
         <label for="emoji">Emoji</label>
         <input id="emoji" maxlength="16" placeholder="🔥" />
 
@@ -32,12 +39,12 @@
         <p id="formFeedback" class="feedback" aria-live="polite"></p>
       </section>
 
-      <section>
+      <section class="card">
         <h2>Live Tray Preview</h2>
         <div id="previewTray" class="preview-tray"></div>
       </section>
 
-      <section>
+      <section class="card">
         <h2>Your Custom Tray</h2>
         <ul id="customList"></ul>
         <div class="row-actions">
@@ -46,8 +53,8 @@
         </div>
       </section>
 
-      <section>
-        <h2>Hide Built-in LinkedIn Reactions</h2>
+      <section class="card">
+        <h2>Hide Native Reactions</h2>
         <div id="builtinToggles"></div>
       </section>
 
