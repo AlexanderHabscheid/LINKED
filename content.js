@@ -310,14 +310,46 @@ async function fallbackApplyReaction(likeButton, type) {
   }
 }
 
-function createCustomButton(customReaction, mappedButton, likeButton) {
+function sanitizeClonedNodeAttributes(root) {
+  if (root.id) {
+    root.removeAttribute("id");
+  }
+
+  root.removeAttribute("aria-pressed");
+  root.removeAttribute("data-control-name");
+  root.removeAttribute("data-linked-hidden-native");
+  root.removeAttribute("data-linked-muted-native");
+  root.removeAttribute("style");
+
+  for (const node of root.querySelectorAll("[id]")) {
+    node.removeAttribute("id");
+  }
+}
+
+function createNativeCloneButton(customReaction, mappedButton) {
+  const clone = mappedButton.cloneNode(true);
+  sanitizeClonedNodeAttributes(clone);
+  clone.classList.add("linked-native-reaction", "linked-native-reaction--cloned");
+  clone.setAttribute("aria-label", customReaction.label);
+  clone.title = `${customReaction.label} -> ${TYPE_TO_LABEL[customReaction.linkedInType]}`;
+  return clone;
+}
+
+function createFallbackEmojiButton(customReaction) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "linked-native-reaction";
+  button.className = "linked-native-reaction linked-native-reaction--fallback";
   button.textContent = customReaction.emoji;
   button.style.setProperty("--linked-type-color", TYPE_TO_COLOR[customReaction.linkedInType]);
   button.setAttribute("aria-label", customReaction.label);
   button.title = `${customReaction.label} -> ${TYPE_TO_LABEL[customReaction.linkedInType]}`;
+  return button;
+}
+
+function createCustomButton(customReaction, mappedButton, likeButton) {
+  const button = mappedButton
+    ? createNativeCloneButton(customReaction, mappedButton)
+    : createFallbackEmojiButton(customReaction);
 
   button.addEventListener("click", async (event) => {
     event.preventDefault();
