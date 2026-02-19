@@ -3,7 +3,8 @@ const SYNC_DEFAULTS = {
 };
 
 const LOCAL_DEFAULTS = {
-  customReactions: []
+  reactionPacks: [],
+  activePackId: ""
 };
 
 const REACTIONS = [
@@ -123,19 +124,48 @@ async function loadAndMigrateState() {
     chrome.storage.local.get(LOCAL_DEFAULTS)
   ]);
 
-  let sourceCustom = localState.customReactions;
-  if ((!Array.isArray(sourceCustom) || sourceCustom.length === 0) && Array.isArray(syncState.customReactions)) {
-    sourceCustom = syncState.customReactions;
+  let reactionPacks = [];
+  if (Array.isArray(localState.reactionPacks) && localState.reactionPacks.length > 0) {
+    reactionPacks = localState.reactionPacks
+      .map((pack) => {
+        if (!pack || typeof pack !== "object") return null;
+        const id = String(pack.id || "").trim();
+        const name = String(pack.name || "Pack").trim().slice(0, 24) || "Pack";
+        if (!id) return null;
+        const reactions = (Array.isArray(pack.reactions) ? pack.reactions : [])
+          .map(sanitizeCustomReaction)
+          .filter(Boolean);
+        return { id, name, reactions };
+      })
+      .filter(Boolean);
   }
 
-  const customReactions = (sourceCustom || [])
-    .map(sanitizeCustomReaction)
-    .filter(Boolean);
+  // Backward compatibility from single-list model.
+  if (!reactionPacks.length) {
+    const oldFromLocal = Array.isArray(localState.customReactions) ? localState.customReactions : [];
+    const oldFromSync = Array.isArray(syncState.customReactions) ? syncState.customReactions : [];
+    const oldReactions = (oldFromLocal.length ? oldFromLocal : oldFromSync)
+      .map(sanitizeCustomReaction)
+      .filter(Boolean);
+    reactionPacks = [{
+      id: `pack_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      name: "Main Pack",
+      reactions: oldReactions
+    }];
+  }
+
+  let activePackId = String(localState.activePackId || "").trim();
+  if (!reactionPacks.some((pack) => pack.id === activePackId)) {
+    activePackId = reactionPacks[0].id;
+  }
+
+  const activePack = reactionPacks.find((pack) => pack.id === activePackId) || reactionPacks[0];
+  const customReactions = activePack ? activePack.reactions : [];
 
   const hiddenBuiltins = sanitizeHiddenBuiltins(syncState.hiddenBuiltins);
 
-  if (JSON.stringify(customReactions) !== JSON.stringify(localState.customReactions || [])) {
-    await chrome.storage.local.set({ customReactions });
+  if (JSON.stringify(reactionPacks) !== JSON.stringify(localState.reactionPacks || []) || activePackId !== String(localState.activePackId || "")) {
+    await chrome.storage.local.set({ reactionPacks, activePackId });
   }
 
   if (JSON.stringify(hiddenBuiltins) !== JSON.stringify(syncState.hiddenBuiltins || [])) {
@@ -144,6 +174,9 @@ async function loadAndMigrateState() {
 
   if (Array.isArray(syncState.customReactions)) {
     await chrome.storage.sync.remove("customReactions");
+  }
+  if (Array.isArray(localState.customReactions)) {
+    await chrome.storage.local.remove("customReactions");
   }
 
   cachedState = { customReactions, hiddenBuiltins };

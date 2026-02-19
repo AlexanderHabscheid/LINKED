@@ -314,6 +314,10 @@ li:last-child {
   margin: 0;
 }
 
+.row-actions .danger {
+  background: linear-gradient(130deg, #e33b66, var(--danger));
+}
+
 .note {
   margin-top: 4px;
   text-align: center;

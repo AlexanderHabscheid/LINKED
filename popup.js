@@ -3,7 +3,8 @@ const SYNC_DEFAULTS = {
 };
 
 const LOCAL_DEFAULTS = {
-  customReactions: []
+  reactionPacks: [],
+  activePackId: ""
 };
 
 const REACTIONS = [
@@ -32,6 +33,11 @@ const TYPE_ALIASES = {
 const ASSET_TYPES = new Set(["emoji", "upload", "avatar"]);
 const REACTION_TYPES = new Set(REACTIONS.map((item) => item.type));
 
+const packSelectEl = document.getElementById("packSelect");
+const newPackBtn = document.getElementById("newPackBtn");
+const dupPackBtn = document.getElementById("dupPackBtn");
+const delPackBtn = document.getElementById("delPackBtn");
+
 const labelEl = document.getElementById("label");
 const assetModeEl = document.getElementById("assetMode");
 const linkedInTypeEl = document.getElementById("linkedInType");
@@ -45,14 +51,20 @@ const emojiFieldsEl = document.getElementById("emojiFields");
 const uploadFieldsEl = document.getElementById("uploadFields");
 const avatarFieldsEl = document.getElementById("avatarFields");
 const addBtn = document.getElementById("addBtn");
+
+const previewTrayEl = document.getElementById("previewTray");
 const customListEl = document.getElementById("customList");
 const builtinTogglesEl = document.getElementById("builtinToggles");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
-const previewTrayEl = document.getElementById("previewTray");
 const feedbackEl = document.getElementById("formFeedback");
 
 let uploadDataUrl = "";
+let appState = {
+  reactionPacks: [],
+  activePackId: "",
+  hiddenBuiltins: []
+};
 
 function normalizeType(type) {
   return TYPE_ALIASES[String(type || "").trim().toLowerCase()] || null;
@@ -63,14 +75,14 @@ function normalizeAssetType(type) {
   return ASSET_TYPES.has(normalized) ? normalized : "emoji";
 }
 
+function isImageDataUrl(value) {
+  return /^data:image\//.test(String(value || ""));
+}
+
 function displayType(type) {
   const normalized = normalizeType(type);
   const hit = REACTIONS.find((item) => item.type === normalized);
   return hit ? hit.label : type;
-}
-
-function isImageDataUrl(value) {
-  return /^data:image\//.test(String(value || ""));
 }
 
 function setFeedback(message, isError = false) {
@@ -78,23 +90,21 @@ function setFeedback(message, isError = false) {
   feedbackEl.classList.toggle("error", Boolean(isError));
 }
 
+function uid() {
+  return `pack_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 function sanitizeHiddenBuiltins(items) {
-  if (!Array.isArray(items)) {
-    return [];
-  }
+  if (!Array.isArray(items)) return [];
 
-  const seen = new Set();
   const output = [];
-
+  const seen = new Set();
   for (const item of items) {
     const normalized = normalizeType(item);
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
+    if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     output.push(normalized);
   }
-
   return output;
 }
 
@@ -107,17 +117,9 @@ function sanitizeCustomReaction(item) {
   const emoji = String(item.emoji || "").trim();
   const assetData = String(item.assetData || "").trim();
 
-  if (!label || !linkedInType || !REACTION_TYPES.has(linkedInType)) {
-    return null;
-  }
-
-  if (assetType === "emoji" && !emoji) {
-    return null;
-  }
-
-  if ((assetType === "upload" || assetType === "avatar") && !isImageDataUrl(assetData)) {
-    return null;
-  }
+  if (!label || !linkedInType || !REACTION_TYPES.has(linkedInType)) return null;
+  if (assetType === "emoji" && !emoji) return null;
+  if ((assetType === "upload" || assetType === "avatar") && !isImageDataUrl(assetData)) return null;
 
   return {
     label,
@@ -128,20 +130,94 @@ function sanitizeCustomReaction(item) {
   };
 }
 
-async function getSyncState() {
-  return chrome.storage.sync.get(SYNC_DEFAULTS);
+function sanitizePack(pack, fallbackName = "My Pack") {
+  if (!pack || typeof pack !== "object") return null;
+
+  const id = String(pack.id || "").trim() || uid();
+  const name = String(pack.name || fallbackName).trim().slice(0, 24) || fallbackName;
+  const reactions = (Array.isArray(pack.reactions) ? pack.reactions : [])
+    .map(sanitizeCustomReaction)
+    .filter(Boolean);
+
+  return { id, name, reactions };
 }
 
-async function getLocalState() {
-  return chrome.storage.local.get(LOCAL_DEFAULTS);
+function createDefaultPack(reactions = []) {
+  return {
+    id: uid(),
+    name: "Main Pack",
+    reactions: reactions.map(sanitizeCustomReaction).filter(Boolean)
+  };
 }
 
-async function saveSyncState(next) {
-  await chrome.storage.sync.set(next);
+function getActivePack() {
+  return appState.reactionPacks.find((pack) => pack.id === appState.activePackId) || appState.reactionPacks[0] || null;
 }
 
-async function saveLocalState(next) {
-  await chrome.storage.local.set(next);
+async function persistLocal() {
+  await chrome.storage.local.set({
+    reactionPacks: appState.reactionPacks,
+    activePackId: appState.activePackId
+  });
+}
+
+async function persistSyncHidden() {
+  await chrome.storage.sync.set({ hiddenBuiltins: appState.hiddenBuiltins });
+}
+
+async function migrateAndLoadState() {
+  const [syncState, localState] = await Promise.all([
+    chrome.storage.sync.get(SYNC_DEFAULTS),
+    chrome.storage.local.get(LOCAL_DEFAULTS)
+  ]);
+
+  let packs = [];
+  if (Array.isArray(localState.reactionPacks) && localState.reactionPacks.length > 0) {
+    packs = localState.reactionPacks.map((pack) => sanitizePack(pack)).filter(Boolean);
+  }
+
+  // Backward compatibility from previous single-list model.
+  if (!packs.length) {
+    const oldFromLocal = Array.isArray(localState.customReactions) ? localState.customReactions : [];
+    const oldFromSync = Array.isArray(syncState.customReactions) ? syncState.customReactions : [];
+    const old = oldFromLocal.length ? oldFromLocal : oldFromSync;
+    packs = [createDefaultPack(old)];
+  }
+
+  const hiddenBuiltins = sanitizeHiddenBuiltins(syncState.hiddenBuiltins);
+  let activePackId = String(localState.activePackId || "").trim();
+  if (!packs.some((pack) => pack.id === activePackId)) {
+    activePackId = packs[0].id;
+  }
+
+  appState = { reactionPacks: packs, activePackId, hiddenBuiltins };
+
+  await persistLocal();
+  await persistSyncHidden();
+
+  if (Array.isArray(syncState.customReactions)) {
+    await chrome.storage.sync.remove("customReactions");
+  }
+  if (Array.isArray(localState.customReactions)) {
+    await chrome.storage.local.remove("customReactions");
+  }
+}
+
+function toggleAssetModeFields() {
+  const mode = normalizeAssetType(assetModeEl.value);
+  emojiFieldsEl.classList.toggle("hidden", mode !== "emoji");
+  uploadFieldsEl.classList.toggle("hidden", mode !== "upload");
+  avatarFieldsEl.classList.toggle("hidden", mode !== "avatar");
+}
+
+function renderAssetPreview(dataUrl) {
+  if (isImageDataUrl(dataUrl)) {
+    uploadPreviewEl.src = dataUrl;
+    uploadPreviewEl.classList.remove("hidden");
+  } else {
+    uploadPreviewEl.removeAttribute("src");
+    uploadPreviewEl.classList.add("hidden");
+  }
 }
 
 function generateAvatarDataUrl(initials, mood, color) {
@@ -202,53 +278,45 @@ async function toSquareDataUrl(rawDataUrl) {
   });
 }
 
-function toggleAssetModeFields() {
+function draftFromInput() {
   const mode = normalizeAssetType(assetModeEl.value);
-  emojiFieldsEl.classList.toggle("hidden", mode !== "emoji");
-  uploadFieldsEl.classList.toggle("hidden", mode !== "upload");
-  avatarFieldsEl.classList.toggle("hidden", mode !== "avatar");
+
+  if (mode === "emoji") {
+    return sanitizeCustomReaction({
+      label: labelEl.value,
+      linkedInType: linkedInTypeEl.value,
+      assetType: "emoji",
+      emoji: emojiEl.value
+    });
+  }
+
+  if (mode === "upload") {
+    return sanitizeCustomReaction({
+      label: labelEl.value,
+      linkedInType: linkedInTypeEl.value,
+      assetType: "upload",
+      assetData: uploadDataUrl
+    });
+  }
+
+  return sanitizeCustomReaction({
+    label: labelEl.value,
+    linkedInType: linkedInTypeEl.value,
+    assetType: "avatar",
+    assetData: generateAvatarDataUrl(avatarInitialsEl.value, avatarMoodEl.value, avatarColorEl.value)
+  });
 }
 
-function renderAssetPreview(dataUrl) {
-  if (isImageDataUrl(dataUrl)) {
-    uploadPreviewEl.src = dataUrl;
-    uploadPreviewEl.classList.remove("hidden");
-  } else {
-    uploadPreviewEl.removeAttribute("src");
-    uploadPreviewEl.classList.add("hidden");
-  }
-}
+function validateInputs() {
+  const label = String(labelEl.value || "").trim();
+  const linkedInType = normalizeType(linkedInTypeEl.value);
+  const mode = normalizeAssetType(assetModeEl.value);
 
-async function migrateStateIfNeeded() {
-  const [syncState, localState] = await Promise.all([getSyncState(), getLocalState()]);
-
-  let sourceCustom = localState.customReactions;
-  if ((!Array.isArray(sourceCustom) || sourceCustom.length === 0) && Array.isArray(syncState.customReactions)) {
-    sourceCustom = syncState.customReactions;
-  }
-
-  const customReactions = (sourceCustom || [])
-    .map(sanitizeCustomReaction)
-    .filter(Boolean);
-
-  const hiddenBuiltins = sanitizeHiddenBuiltins(syncState.hiddenBuiltins);
-
-  const localChanged = JSON.stringify(customReactions) !== JSON.stringify(localState.customReactions || []);
-  const syncHiddenChanged = JSON.stringify(hiddenBuiltins) !== JSON.stringify(syncState.hiddenBuiltins || []);
-
-  if (localChanged) {
-    await saveLocalState({ customReactions });
-  }
-
-  if (syncHiddenChanged) {
-    await saveSyncState({ hiddenBuiltins });
-  }
-
-  if (Array.isArray(syncState.customReactions)) {
-    await chrome.storage.sync.remove("customReactions");
-  }
-
-  return { customReactions, hiddenBuiltins };
+  if (!label) return "Enter a reaction name.";
+  if (!linkedInType) return "Choose a LinkedIn mapping type.";
+  if (mode === "emoji" && !String(emojiEl.value || "").trim()) return "Enter an emoji.";
+  if (mode === "upload" && !isImageDataUrl(uploadDataUrl)) return "Upload an image first.";
+  return null;
 }
 
 function buildPreviewVisual(item, isDraft = false) {
@@ -269,12 +337,22 @@ function buildPreviewVisual(item, isDraft = false) {
   return el;
 }
 
-function renderPreviewTray(items, draft = null) {
+function renderPackSelector() {
+  packSelectEl.innerHTML = "";
+  appState.reactionPacks.forEach((pack) => {
+    const option = document.createElement("option");
+    option.value = pack.id;
+    option.textContent = `${pack.name} (${pack.reactions.length})`;
+    packSelectEl.appendChild(option);
+  });
+  packSelectEl.value = appState.activePackId;
+  delPackBtn.disabled = appState.reactionPacks.length <= 1;
+}
+
+function renderPreviewTray(activeReactions, draft = null) {
   previewTrayEl.innerHTML = "";
-  const combined = [...items];
-  if (draft) {
-    combined.push(draft);
-  }
+  const combined = [...activeReactions];
+  if (draft) combined.push(draft);
 
   if (!combined.length) {
     const empty = document.createElement("div");
@@ -289,34 +367,16 @@ function renderPreviewTray(items, draft = null) {
   });
 }
 
-function renderBuiltinToggles(hiddenBuiltins) {
-  builtinTogglesEl.innerHTML = "";
-
-  REACTIONS.forEach((reaction) => {
-    const row = document.createElement("label");
-    row.className = "toggle-row";
-    row.innerHTML = `<span>${reaction.label}</span>`;
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = hiddenBuiltins.includes(reaction.type);
-    checkbox.addEventListener("change", () => toggleBuiltin(reaction.type, checkbox.checked));
-
-    row.appendChild(checkbox);
-    builtinTogglesEl.appendChild(row);
-  });
-}
-
-function renderCustomList(items) {
+function renderCustomList(activeReactions) {
   customListEl.innerHTML = "";
-  if (!items.length) {
+  if (!activeReactions.length) {
     const li = document.createElement("li");
     li.textContent = "No custom reactions yet";
     customListEl.appendChild(li);
     return;
   }
 
-  items.forEach((item, index) => {
+  activeReactions.forEach((item, index) => {
     const li = document.createElement("li");
 
     const left = document.createElement("div");
@@ -350,7 +410,7 @@ function renderCustomList(items) {
 
     const downBtn = document.createElement("button");
     downBtn.textContent = "Down";
-    downBtn.disabled = index === items.length - 1;
+    downBtn.disabled = index === activeReactions.length - 1;
     downBtn.addEventListener("click", () => moveCustom(index, 1));
 
     const removeBtn = document.createElement("button");
@@ -368,136 +428,165 @@ function renderCustomList(items) {
   });
 }
 
-async function loadState() {
-  const state = await migrateStateIfNeeded();
-  renderCustomList(state.customReactions);
-  renderBuiltinToggles(state.hiddenBuiltins);
-  renderPreviewTray(state.customReactions, draftFromInput());
-}
+function renderBuiltinToggles() {
+  builtinTogglesEl.innerHTML = "";
+  REACTIONS.forEach((reaction) => {
+    const row = document.createElement("label");
+    row.className = "toggle-row";
+    row.innerHTML = `<span>${reaction.label}</span>`;
 
-async function removeCustom(index) {
-  const state = await migrateStateIfNeeded();
-  state.customReactions.splice(index, 1);
-  await saveLocalState({ customReactions: state.customReactions });
-  setFeedback("Removed reaction.");
-  loadState();
-}
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = appState.hiddenBuiltins.includes(reaction.type);
+    checkbox.addEventListener("change", () => toggleBuiltin(reaction.type, checkbox.checked));
 
-async function moveCustom(index, offset) {
-  const state = await migrateStateIfNeeded();
-  const nextIndex = index + offset;
-  if (nextIndex < 0 || nextIndex >= state.customReactions.length) {
-    return;
-  }
-
-  const next = [...state.customReactions];
-  const [item] = next.splice(index, 1);
-  next.splice(nextIndex, 0, item);
-  await saveLocalState({ customReactions: next });
-  setFeedback("Updated order.");
-  loadState();
-}
-
-async function toggleBuiltin(type, shouldHide) {
-  const state = await migrateStateIfNeeded();
-  const set = new Set(state.hiddenBuiltins);
-  if (shouldHide) {
-    set.add(type);
-  } else {
-    set.delete(type);
-  }
-
-  await saveSyncState({ hiddenBuiltins: [...set] });
-}
-
-function validateInputs() {
-  const label = String(labelEl.value || "").trim();
-  const linkedInType = normalizeType(linkedInTypeEl.value);
-  const mode = normalizeAssetType(assetModeEl.value);
-
-  if (!label) {
-    return "Enter a reaction name.";
-  }
-
-  if (!linkedInType) {
-    return "Choose a LinkedIn mapping type.";
-  }
-
-  if (mode === "emoji" && !String(emojiEl.value || "").trim()) {
-    return "Enter an emoji.";
-  }
-
-  if (mode === "upload" && !isImageDataUrl(uploadDataUrl)) {
-    return "Upload an image first.";
-  }
-
-  return null;
-}
-
-function draftFromInput() {
-  const mode = normalizeAssetType(assetModeEl.value);
-
-  if (mode === "emoji") {
-    return sanitizeCustomReaction({
-      label: labelEl.value,
-      linkedInType: linkedInTypeEl.value,
-      assetType: "emoji",
-      emoji: emojiEl.value
-    });
-  }
-
-  if (mode === "upload") {
-    return sanitizeCustomReaction({
-      label: labelEl.value,
-      linkedInType: linkedInTypeEl.value,
-      assetType: "upload",
-      assetData: uploadDataUrl
-    });
-  }
-
-  const avatarDataUrl = generateAvatarDataUrl(
-    avatarInitialsEl.value,
-    avatarMoodEl.value,
-    avatarColorEl.value
-  );
-
-  return sanitizeCustomReaction({
-    label: labelEl.value,
-    linkedInType: linkedInTypeEl.value,
-    assetType: "avatar",
-    assetData: avatarDataUrl
+    row.appendChild(checkbox);
+    builtinTogglesEl.appendChild(row);
   });
 }
 
-addBtn.addEventListener("click", async () => {
-  try {
-    const validationError = validateInputs();
-    if (validationError) {
-      setFeedback(validationError, true);
-      return;
-    }
+function refreshUI() {
+  const activePack = getActivePack();
+  renderPackSelector();
+  renderBuiltinToggles();
+  renderCustomList(activePack ? activePack.reactions : []);
+  renderPreviewTray(activePack ? activePack.reactions : [], draftFromInput());
+}
 
-    const draft = draftFromInput();
-    if (!draft) {
-      setFeedback("Could not build reaction.", true);
-      return;
-    }
+function resetCreatorInputs() {
+  labelEl.value = "";
+  emojiEl.value = "";
+  imageFileEl.value = "";
+  uploadDataUrl = "";
+  renderAssetPreview("");
+}
 
-    const state = await migrateStateIfNeeded();
-    state.customReactions.push(draft);
-    await saveLocalState({ customReactions: state.customReactions });
+async function removeCustom(index) {
+  const pack = getActivePack();
+  if (!pack) return;
 
-    labelEl.value = "";
-    emojiEl.value = "";
-    imageFileEl.value = "";
-    uploadDataUrl = "";
-    renderAssetPreview("");
+  pack.reactions.splice(index, 1);
+  await persistLocal();
+  setFeedback("Removed reaction.");
+  refreshUI();
+}
 
-    setFeedback("Added reaction.");
-    loadState();
-  } catch {
-    setFeedback("Failed to add reaction. Try again.", true);
+async function moveCustom(index, offset) {
+  const pack = getActivePack();
+  if (!pack) return;
+
+  const nextIndex = index + offset;
+  if (nextIndex < 0 || nextIndex >= pack.reactions.length) return;
+
+  const next = [...pack.reactions];
+  const [item] = next.splice(index, 1);
+  next.splice(nextIndex, 0, item);
+  pack.reactions = next;
+
+  await persistLocal();
+  setFeedback("Updated order.");
+  refreshUI();
+}
+
+async function toggleBuiltin(type, shouldHide) {
+  const set = new Set(appState.hiddenBuiltins);
+  if (shouldHide) set.add(type);
+  else set.delete(type);
+  appState.hiddenBuiltins = [...set];
+  await persistSyncHidden();
+}
+
+async function createPack() {
+  const name = window.prompt("Name the new reaction pack", "New Pack");
+  if (!name) return;
+
+  const pack = createDefaultPack([]);
+  pack.name = String(name).trim().slice(0, 24) || "New Pack";
+  appState.reactionPacks.push(pack);
+  appState.activePackId = pack.id;
+
+  await persistLocal();
+  setFeedback("Created new pack.");
+  refreshUI();
+}
+
+async function duplicatePack() {
+  const active = getActivePack();
+  if (!active) return;
+
+  const copy = {
+    id: uid(),
+    name: `${active.name} Copy`.slice(0, 24),
+    reactions: JSON.parse(JSON.stringify(active.reactions))
+  };
+
+  appState.reactionPacks.push(copy);
+  appState.activePackId = copy.id;
+  await persistLocal();
+  setFeedback("Duplicated pack.");
+  refreshUI();
+}
+
+async function deletePack() {
+  if (appState.reactionPacks.length <= 1) {
+    setFeedback("At least one pack is required.", true);
+    return;
   }
+
+  const active = getActivePack();
+  if (!active) return;
+
+  const confirmed = window.confirm(`Delete pack \"${active.name}\"?`);
+  if (!confirmed) return;
+
+  appState.reactionPacks = appState.reactionPacks.filter((pack) => pack.id !== active.id);
+  appState.activePackId = appState.reactionPacks[0].id;
+
+  await persistLocal();
+  setFeedback("Deleted pack.");
+  refreshUI();
+}
+
+addBtn.addEventListener("click", async () => {
+  const validationError = validateInputs();
+  if (validationError) {
+    setFeedback(validationError, true);
+    return;
+  }
+
+  const draft = draftFromInput();
+  if (!draft) {
+    setFeedback("Could not build reaction.", true);
+    return;
+  }
+
+  const pack = getActivePack();
+  if (!pack) {
+    setFeedback("No active pack available.", true);
+    return;
+  }
+
+  pack.reactions.push(draft);
+  await persistLocal();
+  resetCreatorInputs();
+  setFeedback("Added reaction.");
+  refreshUI();
+});
+
+newPackBtn.addEventListener("click", createPack);
+dupPackBtn.addEventListener("click", duplicatePack);
+delPackBtn.addEventListener("click", deletePack);
+
+packSelectEl.addEventListener("change", async () => {
+  const nextId = String(packSelectEl.value || "");
+  if (!appState.reactionPacks.some((pack) => pack.id === nextId)) {
+    return;
+  }
+
+  appState.activePackId = nextId;
+  await persistLocal();
+  setFeedback("Switched active pack.");
+  refreshUI();
 });
 
 imageFileEl.addEventListener("change", async () => {
@@ -506,6 +595,7 @@ imageFileEl.addEventListener("change", async () => {
     if (!file) {
       uploadDataUrl = "";
       renderAssetPreview("");
+      refreshUI();
       return;
     }
 
@@ -517,33 +607,38 @@ imageFileEl.addEventListener("change", async () => {
     const raw = await readFileAsDataUrl(file);
     uploadDataUrl = await toSquareDataUrl(raw);
     renderAssetPreview(uploadDataUrl);
-
-    const state = await migrateStateIfNeeded();
-    renderPreviewTray(state.customReactions, draftFromInput());
+    refreshUI();
   } catch {
     setFeedback("Could not load image.", true);
   }
 });
 
-assetModeEl.addEventListener("change", async () => {
+assetModeEl.addEventListener("change", () => {
   toggleAssetModeFields();
-  const state = await migrateStateIfNeeded();
-  renderPreviewTray(state.customReactions, draftFromInput());
+  refreshUI();
 });
 
 for (const el of [labelEl, emojiEl, linkedInTypeEl, avatarInitialsEl, avatarMoodEl, avatarColorEl]) {
-  el.addEventListener("input", async () => {
-    const state = await migrateStateIfNeeded();
-    renderPreviewTray(state.customReactions, draftFromInput());
+  el.addEventListener("input", () => {
     if (feedbackEl.classList.contains("error")) {
       setFeedback("");
     }
+    refreshUI();
   });
 }
 
 exportBtn.addEventListener("click", async () => {
-  const state = await migrateStateIfNeeded();
-  const payload = JSON.stringify({ customReactions: state.customReactions }, null, 2);
+  const active = getActivePack();
+  if (!active) return;
+
+  const payload = JSON.stringify({
+    version: 2,
+    pack: {
+      name: active.name,
+      reactions: active.reactions
+    }
+  }, null, 2);
+
   await navigator.clipboard.writeText(payload);
   exportBtn.textContent = "Copied";
   setTimeout(() => {
@@ -557,15 +652,26 @@ importBtn.addEventListener("click", async () => {
 
   try {
     const parsed = JSON.parse(raw);
-    const input = Array.isArray(parsed) ? parsed : parsed.customReactions;
+    const input = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.customReactions)
+        ? parsed.customReactions
+        : Array.isArray(parsed.pack?.reactions)
+          ? parsed.pack.reactions
+          : null;
+
     if (!Array.isArray(input)) {
       throw new Error("Invalid format");
     }
 
-    const next = input.map(sanitizeCustomReaction).filter(Boolean);
-    await saveLocalState({ customReactions: next });
-    setFeedback("Imported reactions.");
-    loadState();
+    const nextReactions = input.map(sanitizeCustomReaction).filter(Boolean);
+    const active = getActivePack();
+    if (!active) return;
+
+    active.reactions = nextReactions;
+    await persistLocal();
+    setFeedback("Imported reactions into active pack.");
+    refreshUI();
   } catch {
     importBtn.textContent = "Invalid";
     setFeedback("Import failed. Invalid JSON format.", true);
@@ -575,5 +681,15 @@ importBtn.addEventListener("click", async () => {
   }
 });
 
-toggleAssetModeFields();
-loadState();
+chrome.storage.onChanged.addListener(async (_changes, areaName) => {
+  if (areaName === "local" || areaName === "sync") {
+    await migrateAndLoadState();
+    refreshUI();
+  }
+});
+
+(async () => {
+  await migrateAndLoadState();
+  toggleAssetModeFields();
+  refreshUI();
+})();
