@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "catalog:openmoji": "node scripts/build-openmoji-catalog.mjs"
+    "catalog:openmoji": "node scripts/build-openmoji-catalog.mjs",
+    "catalog:stickers": "node scripts/build-sticker-catalog.mjs"
   }
 }

@@ -33,3 +33,36 @@ The generated `reaction-catalog.js` exports:
 ## Licensing note
 
 OpenMoji assets are CC BY-SA 4.0. Keep attribution visible in the UI and docs.
+
+## Generate reaction catalog from dedicated sticker assets
+
+Use this when you have a licensed sticker set and want a sticker-first library.
+
+1. Create a manifest using `catalog/sticker-manifest.example.json` as a template.
+2. Point each item to a local `file` path or a downloadable image `url`.
+3. Build the catalog:
+
+```bash
+cd /Users/ahabscheid/Downloads/LINKED
+npm run catalog:stickers -- --manifest ./catalog/sticker-manifest.example.json --out ./reaction-catalog.js --limit 500
+```
+
+4. Reload the extension in `chrome://extensions`.
+
+### Manifest format
+
+- `source.provider`: catalog provider name
+- `source.license`: license/usage terms you are allowed to ship
+- `source.url`: source landing page
+- `items[]`:
+  - `label` (required)
+  - `category` (optional, defaults to `Stickers`)
+  - `linkedInType` (optional, auto-inferred when missing)
+  - `keywords` (optional)
+  - `emoji` (optional)
+  - `file` OR `url` OR `assetData` (at least one image source required)
+
+## Licensing and rights
+
+- Do not scrape/copy copyrighted sticker libraries into distributable builds unless you have rights.
+- Keep provider/license attribution accurate for every generated catalog.

@@ -16,31 +16,21 @@
         <span class="hero-badge">STUDIO</span>
       </header>
 
-      <section class="card">
-        <h2>Reaction Packs</h2>
-        <label for="packSelect">Active Pack</label>
-        <select id="packSelect"></select>
-        <div class="row-actions">
-          <button id="newPackBtn" type="button">New Pack</button>
-          <button id="dupPackBtn" class="secondary" type="button">Duplicate</button>
-          <button id="renamePackBtn" class="secondary" type="button">Rename</button>
-          <button id="delPackBtn" class="danger" type="button">Delete</button>
-        </div>
-        <div id="packMeta" class="pack-meta"></div>
-      </section>
-
       <section class="card card-accent">
-        <h2>Reaction Browser</h2>
+        <h2>Reaction Studio</h2>
+        <p>Browse, tweak, then add to your tray.</p>
+
         <label for="catalogSearch">Search</label>
         <input id="catalogSearch" maxlength="40" placeholder="Search reactions (idea, support, celebrate...)" />
         <label for="catalogCategory">Category</label>
         <select id="catalogCategory"></select>
+        <div id="catalogKindControls" class="catalog-kind-controls">
+          <button type="button" class="catalog-kind" data-kind="all">All</button>
+          <button type="button" class="catalog-kind" data-kind="emoji">Emoji</button>
+          <button type="button" class="catalog-kind active" data-kind="sticker">Stickers</button>
+        </div>
         <div id="catalogGrid" class="catalog-grid"></div>
         <p id="catalogAttribution" class="catalog-attribution"></p>
-      </section>
-
-      <section class="card card-accent">
-        <h2>Create Reaction</h2>
 
         <label for="label">Name</label>
         <input id="label" maxlength="20" placeholder="Hot take" />

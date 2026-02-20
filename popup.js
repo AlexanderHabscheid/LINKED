@@ -33,14 +33,9 @@ const TYPE_ALIASES = {
 const ASSET_TYPES = new Set(["emoji", "upload", "avatar"]);
 const REACTION_TYPES = new Set(REACTIONS.map((item) => item.type));
 
-const packSelectEl = document.getElementById("packSelect");
-const newPackBtn = document.getElementById("newPackBtn");
-const dupPackBtn = document.getElementById("dupPackBtn");
-const renamePackBtn = document.getElementById("renamePackBtn");
-const delPackBtn = document.getElementById("delPackBtn");
-const packMetaEl = document.getElementById("packMeta");
 const catalogSearchEl = document.getElementById("catalogSearch");
 const catalogCategoryEl = document.getElementById("catalogCategory");
+const catalogKindControlsEl = document.getElementById("catalogKindControls");
 const catalogGridEl = document.getElementById("catalogGrid");
 const catalogAttributionEl = document.getElementById("catalogAttribution");
 
@@ -61,11 +56,10 @@ const addBtn = document.getElementById("addBtn");
 const previewTrayEl = document.getElementById("previewTray");
 const customListEl = document.getElementById("customList");
 const builtinTogglesEl = document.getElementById("builtinToggles");
-const exportBtn = document.getElementById("exportBtn");
-const importBtn = document.getElementById("importBtn");
 const feedbackEl = document.getElementById("formFeedback");
 
 let uploadDataUrl = "";
+let catalogViewKind = "sticker";
 let appState = {
   reactionPacks: [],
   activePackId: "",
@@ -343,48 +337,6 @@ function buildPreviewVisual(item, isDraft = false) {
   return el;
 }
 
-function createPackThumb(item) {
-  const thumb = document.createElement("div");
-  thumb.className = "pack-meta-thumb";
-
-  if ((item?.assetType === "upload" || item?.assetType === "avatar") && isImageDataUrl(item?.assetData)) {
-    const img = document.createElement("img");
-    img.src = item.assetData;
-    img.alt = item.label || "Pack cover";
-    thumb.appendChild(img);
-  } else if (item?.emoji) {
-    thumb.textContent = item.emoji;
-  } else {
-    thumb.textContent = "∎";
-  }
-
-  return thumb;
-}
-
-function renderPackSelector() {
-  packSelectEl.innerHTML = "";
-  appState.reactionPacks.forEach((pack) => {
-    const option = document.createElement("option");
-    option.value = pack.id;
-    option.textContent = `${pack.name} (${pack.reactions.length})`;
-    packSelectEl.appendChild(option);
-  });
-  packSelectEl.value = appState.activePackId;
-  delPackBtn.disabled = appState.reactionPacks.length <= 1;
-}
-
-function renderPackMeta(activePack) {
-  packMetaEl.innerHTML = "";
-  if (!activePack) {
-    return;
-  }
-
-  packMetaEl.appendChild(createPackThumb(activePack.reactions[0]));
-  const text = document.createElement("span");
-  text.textContent = `${activePack.name} • ${activePack.reactions.length} reactions`;
-  packMetaEl.appendChild(text);
-}
-
 function inferTypeFromCatalogItem(item) {
   const normalized = normalizeType(item.linkedInType);
   if (normalized) {
@@ -434,31 +386,50 @@ function renderCatalogAttribution() {
   catalogAttributionEl.textContent = text;
 }
 
-function addCatalogItemToActivePack(item) {
-  const active = getActivePack();
-  if (!active) {
-    setFeedback("No active pack available.", true);
-    return;
+function catalogItemKind(item) {
+  const hasSticker = isImageDataUrl(item?.assetData) || String(item?.assetType || "").toLowerCase() === "upload";
+  const hasEmoji = String(item?.emoji || "").trim().length > 0;
+
+  if (hasSticker && hasEmoji) return "both";
+  if (hasSticker) return "sticker";
+  return "emoji";
+}
+
+function matchesCatalogKind(item, kind) {
+  const itemKind = catalogItemKind(item);
+  if (kind === "all") return true;
+  if (itemKind === "both") return kind === "emoji" || kind === "sticker";
+  return itemKind === kind;
+}
+
+function renderCatalogKindControls() {
+  if (!catalogKindControlsEl) return;
+  for (const button of catalogKindControlsEl.querySelectorAll("button[data-kind]")) {
+    const kind = String(button.dataset.kind || "all");
+    button.classList.toggle("active", kind === catalogViewKind);
+  }
+}
+
+function loadCatalogItemIntoCreator(item) {
+  if (!item || typeof item !== "object") return;
+
+  labelEl.value = String(item.label || "").slice(0, 20);
+  linkedInTypeEl.value = inferTypeFromCatalogItem(item);
+
+  if (isImageDataUrl(item.assetData)) {
+    assetModeEl.value = "upload";
+    uploadDataUrl = item.assetData;
+    renderAssetPreview(uploadDataUrl);
+  } else {
+    assetModeEl.value = "emoji";
+    emojiEl.value = String(item.emoji || "").trim();
+    uploadDataUrl = "";
+    renderAssetPreview("");
   }
 
-  const next = sanitizeCustomReaction({
-    label: item.label,
-    linkedInType: inferTypeFromCatalogItem(item),
-    assetType: isImageDataUrl(item.assetData) ? "upload" : "emoji",
-    emoji: item.emoji,
-    assetData: item.assetData || ""
-  });
-
-  if (!next) {
-    setFeedback("Could not add selected catalog item.", true);
-    return;
-  }
-
-  active.reactions.push(next);
-  persistLocal().then(() => {
-    setFeedback(`Added ${item.label} to ${active.name}.`);
-    refreshUI();
-  });
+  toggleAssetModeFields();
+  setFeedback(`Loaded ${item.label}. Adjust if needed, then click Add Custom Reaction.`);
+  refreshUI();
 }
 
 function renderCatalog() {
@@ -469,6 +440,7 @@ function renderCatalog() {
   const filtered = source.filter((item) => {
     const categoryMatch = selectedCategory === "All" || item.category === selectedCategory;
     if (!categoryMatch) return false;
+    if (!matchesCatalogKind(item, catalogViewKind)) return false;
     if (!query) return true;
 
     const haystack = [
@@ -482,6 +454,7 @@ function renderCatalog() {
   });
 
   catalogGridEl.innerHTML = "";
+  renderCatalogKindControls();
 
   if (!filtered.length) {
     const empty = document.createElement("div");
@@ -491,15 +464,17 @@ function renderCatalog() {
     return;
   }
 
-  filtered.slice(0, 80).forEach((item) => {
+  filtered.slice(0, 140).forEach((item) => {
+    const kind = catalogItemKind(item);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "catalog-item";
-    button.title = `${item.label} (${item.category})`;
+    button.className = `catalog-item catalog-item-kind-${kind}`;
+    button.title = `${item.label} (${item.category}) • ${kind}`;
 
     const icon = document.createElement("span");
     icon.className = "catalog-item-emoji";
-    if (isImageDataUrl(item.assetData)) {
+    const forceEmojiVisual = catalogViewKind === "emoji";
+    if (!forceEmojiVisual && isImageDataUrl(item.assetData)) {
       const img = document.createElement("img");
       img.src = item.assetData;
       img.alt = item.label;
@@ -521,7 +496,7 @@ function renderCatalog() {
     button.appendChild(text);
     button.appendChild(category);
 
-    button.addEventListener("click", () => addCatalogItemToActivePack(item));
+    button.addEventListener("click", () => loadCatalogItemIntoCreator(item));
     catalogGridEl.appendChild(button);
   });
 }
@@ -624,8 +599,6 @@ function renderBuiltinToggles() {
 
 function refreshUI() {
   const activePack = getActivePack();
-  renderPackSelector();
-  renderPackMeta(activePack);
   renderBuiltinToggles();
   renderCustomList(activePack ? activePack.reactions : []);
   renderPreviewTray(activePack ? activePack.reactions : [], draftFromInput());
@@ -675,70 +648,6 @@ async function toggleBuiltin(type, shouldHide) {
   await persistSyncHidden();
 }
 
-async function createPack() {
-  const name = window.prompt("Name the new reaction pack", "New Pack");
-  if (!name) return;
-
-  const pack = createDefaultPack([]);
-  pack.name = String(name).trim().slice(0, 24) || "New Pack";
-  appState.reactionPacks.push(pack);
-  appState.activePackId = pack.id;
-
-  await persistLocal();
-  setFeedback("Created new pack.");
-  refreshUI();
-}
-
-async function duplicatePack() {
-  const active = getActivePack();
-  if (!active) return;
-
-  const copy = {
-    id: uid(),
-    name: `${active.name} Copy`.slice(0, 24),
-    reactions: JSON.parse(JSON.stringify(active.reactions))
-  };
-
-  appState.reactionPacks.push(copy);
-  appState.activePackId = copy.id;
-  await persistLocal();
-  setFeedback("Duplicated pack.");
-  refreshUI();
-}
-
-async function renamePack() {
-  const active = getActivePack();
-  if (!active) return;
-
-  const nextName = window.prompt("Rename pack", active.name);
-  if (!nextName) return;
-
-  active.name = String(nextName).trim().slice(0, 24) || active.name;
-  await persistLocal();
-  setFeedback("Renamed pack.");
-  refreshUI();
-}
-
-async function deletePack() {
-  if (appState.reactionPacks.length <= 1) {
-    setFeedback("At least one pack is required.", true);
-    return;
-  }
-
-  const active = getActivePack();
-  if (!active) return;
-
-  const confirmed = window.confirm(`Delete pack \"${active.name}\"?`);
-  if (!confirmed) return;
-
-  appState.reactionPacks = appState.reactionPacks.filter((pack) => pack.id !== active.id);
-  appState.activePackId = appState.reactionPacks[0].id;
-
-  await persistLocal();
-  setFeedback("Deleted pack.");
-  refreshUI();
-}
-
 addBtn.addEventListener("click", async () => {
   const validationError = validateInputs();
   if (validationError) {
@@ -754,7 +663,7 @@ addBtn.addEventListener("click", async () => {
 
   const pack = getActivePack();
   if (!pack) {
-    setFeedback("No active pack available.", true);
+    setFeedback("No reaction tray available.", true);
     return;
   }
 
@@ -762,23 +671,6 @@ addBtn.addEventListener("click", async () => {
   await persistLocal();
   resetCreatorInputs();
   setFeedback("Added reaction.");
-  refreshUI();
-});
-
-newPackBtn.addEventListener("click", createPack);
-dupPackBtn.addEventListener("click", duplicatePack);
-renamePackBtn.addEventListener("click", renamePack);
-delPackBtn.addEventListener("click", deletePack);
-
-packSelectEl.addEventListener("change", async () => {
-  const nextId = String(packSelectEl.value || "");
-  if (!appState.reactionPacks.some((pack) => pack.id === nextId)) {
-    return;
-  }
-
-  appState.activePackId = nextId;
-  await persistLocal();
-  setFeedback("Switched active pack.");
   refreshUI();
 });
 
@@ -819,6 +711,19 @@ catalogCategoryEl.addEventListener("change", () => {
   renderCatalog();
 });
 
+if (catalogKindControlsEl) {
+  catalogKindControlsEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest("button[data-kind]");
+    if (!btn) return;
+    const nextKind = String(btn.getAttribute("data-kind") || "all");
+    if (!["all", "emoji", "sticker"].includes(nextKind)) return;
+    catalogViewKind = nextKind;
+    renderCatalog();
+  });
+}
+
 for (const el of [labelEl, emojiEl, linkedInTypeEl, avatarInitialsEl, avatarMoodEl, avatarColorEl]) {
   el.addEventListener("input", () => {
     if (feedbackEl.classList.contains("error")) {
@@ -827,60 +732,6 @@ for (const el of [labelEl, emojiEl, linkedInTypeEl, avatarInitialsEl, avatarMood
     refreshUI();
   });
 }
-
-exportBtn.addEventListener("click", async () => {
-  const active = getActivePack();
-  if (!active) return;
-
-  const payload = JSON.stringify({
-    version: 2,
-    pack: {
-      name: active.name,
-      reactions: active.reactions
-    }
-  }, null, 2);
-
-  await navigator.clipboard.writeText(payload);
-  exportBtn.textContent = "Copied";
-  setTimeout(() => {
-    exportBtn.textContent = "Export";
-  }, 900);
-});
-
-importBtn.addEventListener("click", async () => {
-  const raw = window.prompt("Paste exported JSON");
-  if (!raw) return;
-
-  try {
-    const parsed = JSON.parse(raw);
-    const input = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed.customReactions)
-        ? parsed.customReactions
-        : Array.isArray(parsed.pack?.reactions)
-          ? parsed.pack.reactions
-          : null;
-
-    if (!Array.isArray(input)) {
-      throw new Error("Invalid format");
-    }
-
-    const nextReactions = input.map(sanitizeCustomReaction).filter(Boolean);
-    const active = getActivePack();
-    if (!active) return;
-
-    active.reactions = nextReactions;
-    await persistLocal();
-    setFeedback("Imported reactions into active pack.");
-    refreshUI();
-  } catch {
-    importBtn.textContent = "Invalid";
-    setFeedback("Import failed. Invalid JSON format.", true);
-    setTimeout(() => {
-      importBtn.textContent = "Import";
-    }, 900);
-  }
-});
 
 chrome.storage.onChanged.addListener(async (_changes, areaName) => {
   if (areaName === "local" || areaName === "sync") {

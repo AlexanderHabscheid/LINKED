@@ -42,6 +42,7 @@ let cachedState = {
 let floatingShell = null;
 let floatingLikeButton = null;
 let floatingHideTimer = null;
+const boundLikeButtons = new WeakSet();
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -222,6 +223,31 @@ function getLikeButtonInActionBar(actionBar) {
   return null;
 }
 
+function looksLikeLikeTrigger(node) {
+  if (!node || !isVisible(node)) return false;
+  const label = textOf(node).toLowerCase();
+  if (!label) return false;
+  return (
+    label.includes("like") ||
+    label.includes("react") ||
+    label.includes("celebrate") ||
+    label.includes("support")
+  );
+}
+
+function findLikeButtons(root = document) {
+  const nodes = root.querySelectorAll(
+    "button[aria-label], [role='button'][aria-label], button[aria-pressed][aria-label]"
+  );
+  const out = [];
+  for (const node of nodes) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (!looksLikeLikeTrigger(node)) continue;
+    out.push(node);
+  }
+  return out;
+}
+
 function distance(a, b) {
   const ax = a.left + a.width / 2;
   const ay = a.top + a.height / 2;
@@ -332,7 +358,7 @@ function findNativeMappedButtons(tray) {
 }
 
 async function fallbackApplyReaction(likeButton, type) {
-  if (!likeButton) return;
+  if (!likeButton) return false;
 
   const postRoot = likeButton.closest(
     "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
@@ -360,20 +386,18 @@ async function fallbackApplyReaction(likeButton, type) {
   const direct = findOption();
   if (direct) {
     direct.click();
-    return;
+    return true;
   }
 
   if (type === "like") {
     likeButton.click();
-    return;
+    return true;
   }
 
-  likeButton.click();
-  await wait(220);
-  const afterClick = findOption();
-  if (afterClick) {
-    afterClick.click();
-  }
+  // Do not click Like for non-like mappings if we cannot find explicit options.
+  // This prevents accidental fallback to a default Like reaction.
+  console.warn("[LINKED] Non-like reaction option not found; skipping fallback click.", { type });
+  return false;
 }
 
 function clearFloatingHideTimer() {
@@ -542,6 +566,8 @@ async function enhanceLikeButton(likeButton) {
   if (!isVisible(likeButton)) return;
 
   clearFloatingHideTimer();
+  // Always show our custom tray immediately for reliability.
+  mountFloatingTray(likeButton);
   likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -553,8 +579,6 @@ async function enhanceLikeButton(likeButton) {
       return;
     }
   }
-
-  mountFloatingTray(likeButton);
 }
 
 function bindActionBar(actionBar) {
@@ -562,8 +586,20 @@ function bindActionBar(actionBar) {
 
   const likeButton = getLikeButtonInActionBar(actionBar);
   if (!likeButton) return;
+  bindLikeButton(likeButton);
+
+  actionBar.dataset.linkedBound = "true";
+}
+
+function bindLikeButton(likeButton) {
+  if (!(likeButton instanceof HTMLElement)) return;
+  if (boundLikeButtons.has(likeButton)) return;
 
   likeButton.addEventListener("mouseenter", () => {
+    enhanceLikeButton(likeButton);
+  });
+
+  likeButton.addEventListener("pointerenter", () => {
     enhanceLikeButton(likeButton);
   });
 
@@ -579,7 +615,7 @@ function bindActionBar(actionBar) {
     floatingHideTimer = window.setTimeout(() => hideFloatingTray(), 120);
   });
 
-  actionBar.dataset.linkedBound = "true";
+  boundLikeButtons.add(likeButton);
 }
 
 function clearGlobalHiddenBuiltins() {
@@ -636,6 +672,9 @@ async function refreshAll() {
   for (const actionBar of getActionBars()) {
     bindActionBar(actionBar);
   }
+  for (const likeButton of findLikeButtons(document)) {
+    bindLikeButton(likeButton);
+  }
 
   refreshMountedTrays();
   applyHiddenBuiltins();
@@ -650,6 +689,9 @@ chrome.storage.onChanged.addListener(async (_changes, areaName) => {
 const observer = new MutationObserver(() => {
   for (const actionBar of getActionBars()) {
     bindActionBar(actionBar);
+  }
+  for (const likeButton of findLikeButtons(document)) {
+    bindLikeButton(likeButton);
   }
   applyHiddenBuiltins();
   if (floatingShell && floatingLikeButton) {

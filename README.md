@@ -35,10 +35,15 @@ Backward compatibility migration from old single-list models is automatic.
 
 ## Catalog Pipeline CLI
 
-A local internal CLI is included to generate `reaction-catalog.js` from OpenMoji assets.
+A local internal CLI is included to generate `reaction-catalog.js` from:
+
+- OpenMoji assets (default)
+- Dedicated sticker manifests (sticker-first sets)
 
 - Script: `scripts/build-openmoji-catalog.mjs`
+- Script: `scripts/build-sticker-catalog.mjs`
 - NPM command: `npm run catalog:openmoji -- --openmoji /path/to/openmoji --out ./reaction-catalog.js --limit 320`
+- NPM command: `npm run catalog:stickers -- --manifest ./catalog/sticker-manifest.example.json --out ./reaction-catalog.js --limit 500`
 - Docs: `docs/catalog-pipeline.md`
 
 This avoids direct scraping/copying from Emojipedia while still giving a rich catalog experience.

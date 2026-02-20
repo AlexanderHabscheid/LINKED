@@ -1,0 +1,25 @@
+{
+  "source": {
+    "provider": "Sticker Source Name",
+    "license": "Your licensed terms",
+    "url": "https://example.com/stickers"
+  },
+  "items": [
+    {
+      "label": "Capybara With Hearts",
+      "category": "Animals",
+      "emoji": "",
+      "linkedInType": "love",
+      "keywords": ["capybara", "love", "cute"],
+      "file": "./stickers/capybara-hearts.png"
+    },
+    {
+      "label": "Heart On Fire",
+      "category": "Popular",
+      "emoji": "❤‍🔥",
+      "linkedInType": "celebrate",
+      "keywords": ["heart", "fire", "trending"],
+      "url": "https://example.com/stickers/heart-on-fire.png"
+    }
+  ]
+}
