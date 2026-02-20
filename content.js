@@ -607,6 +607,45 @@ function getPostKey(postRoot) {
   return null;
 }
 
+function getPostRootFromKey(key) {
+  if (!key || typeof key !== "string") return null;
+
+  const idx = key.indexOf(":");
+  if (idx <= 0) return null;
+  const kind = key.slice(0, idx);
+  const value = key.slice(idx + 1);
+  if (!value) return null;
+
+  if (kind === "href") {
+    for (const anchor of document.querySelectorAll("a[href]")) {
+      if (!(anchor instanceof HTMLAnchorElement)) continue;
+      if (String(anchor.href || "").trim() !== value) continue;
+      const postRoot = anchor.closest(
+        "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+      );
+      if (postRoot instanceof HTMLElement) return postRoot;
+    }
+    return null;
+  }
+
+  const selector = `[${kind}="${CSS.escape(value)}"]`;
+  const node = document.querySelector(selector);
+  if (!(node instanceof HTMLElement)) return null;
+  const postRoot = node.closest(
+    "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+  );
+  return postRoot instanceof HTMLElement ? postRoot : null;
+}
+
+function findLikeButtonInPostRoot(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return null;
+  const actionBar = postRoot.querySelector(
+    "div.feed-shared-social-action-bar, div.social-details-social-actions, div[class*='social-action-bar']"
+  );
+  if (!(actionBar instanceof HTMLElement)) return null;
+  return getLikeButtonInActionBar(actionBar);
+}
+
 function clearLikeButtonCustomVisual(likeButton) {
   if (!(likeButton instanceof HTMLElement)) return;
   const overlay = likeButton.querySelector(":scope > .linked-like-custom-overlay");
@@ -710,18 +749,29 @@ function applyLikeButtonCustomVisual(likeButton, reaction) {
 function persistAndApplyLikeButtonCustomVisual(likeButton, reaction) {
   if (!(likeButton instanceof HTMLElement) || !reaction) return;
   const postRoot = getPostRootForButton(likeButton);
+  const postKey = getPostKey(postRoot);
   if (postRoot) {
     selectedReactionByPost.set(postRoot, reaction);
-    const key = getPostKey(postRoot);
-    if (key) selectedReactionByKey.set(key, reaction);
+    if (postKey) selectedReactionByKey.set(postKey, reaction);
   }
 
-  const delays = [40, 140, 360, 900];
+  const applyToCurrentPostLikeButton = () => {
+    let currentPostRoot = postRoot;
+    if (!(currentPostRoot instanceof HTMLElement) || !currentPostRoot.isConnected) {
+      currentPostRoot = getPostRootFromKey(postKey);
+    }
+
+    const currentLikeButton = findLikeButtonInPostRoot(currentPostRoot);
+    if (!(currentLikeButton instanceof HTMLElement)) return;
+
+    applyLikeButtonCustomVisual(currentLikeButton, reaction);
+    applySummaryCustomVisual(currentPostRoot, reaction);
+  };
+
+  const delays = [0, 40, 140, 360, 900, 1400, 2100];
   for (const delay of delays) {
     window.setTimeout(() => {
-      if (!likeButton.isConnected) return;
-      applyLikeButtonCustomVisual(likeButton, reaction);
-      applySummaryCustomVisual(postRoot, reaction);
+      applyToCurrentPostLikeButton();
     }, delay);
   }
 }
