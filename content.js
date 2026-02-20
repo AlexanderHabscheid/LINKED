@@ -245,7 +245,12 @@ function getActionBars() {
 function getLikeButtonInActionBar(actionBar) {
   for (const button of actionBar.querySelectorAll("button,[role='button']")) {
     const label = textOf(button).toLowerCase();
-    if (label.includes("like") || label.includes("react")) {
+    if (
+      label.includes("like") ||
+      label.includes("react") ||
+      label.includes("reacted") ||
+      REACTION_LABELS.some((reaction) => label.includes(reaction))
+    ) {
       return button;
     }
   }
@@ -259,8 +264,12 @@ function looksLikeLikeTrigger(node) {
   return (
     label.includes("like") ||
     label.includes("react") ||
+    label.includes("reacted") ||
     label.includes("celebrate") ||
-    label.includes("support")
+    label.includes("support") ||
+    label.includes("love") ||
+    label.includes("insightful") ||
+    label.includes("funny")
   );
 }
 
@@ -497,6 +506,25 @@ function mountFloatingTray(likeButton) {
   positionFloatingTray(likeButton);
 }
 
+function resolveLikeButtonFromContext(contextNode, fallbackLikeButton) {
+  if (fallbackLikeButton instanceof HTMLElement && fallbackLikeButton.isConnected) {
+    return fallbackLikeButton;
+  }
+
+  if (!(contextNode instanceof Node)) return null;
+  const postRoot = contextNode.closest(
+    "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+  );
+  if (!(postRoot instanceof HTMLElement)) return null;
+
+  const actionBar = postRoot.querySelector(
+    "div.feed-shared-social-action-bar, div.social-details-social-actions, div[class*='social-action-bar']"
+  );
+  if (!(actionBar instanceof HTMLElement)) return null;
+
+  return getLikeButtonInActionBar(actionBar);
+}
+
 function applyReactionVisual(button, reaction) {
   if (!reaction) return;
 
@@ -695,14 +723,17 @@ function createCustomButton(reaction, likeButton) {
     event.preventDefault();
     event.stopPropagation();
 
+    const currentLikeButton = resolveLikeButtonFromContext(button, likeButton);
+    if (!(currentLikeButton instanceof HTMLElement)) return;
+
     // Apply visual immediately so native reacted icon never becomes visible for long.
-    persistAndApplyLikeButtonCustomVisual(likeButton, reaction);
-    const applied = await fallbackApplyReaction(likeButton, reaction.linkedInType);
+    persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
+    const applied = await fallbackApplyReaction(currentLikeButton, reaction.linkedInType);
 
     if (applied) {
-      persistAndApplyLikeButtonCustomVisual(likeButton, reaction);
+      persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
     } else {
-      clearPostCustomVisualsForButton(likeButton);
+      clearPostCustomVisualsForButton(currentLikeButton);
     }
   });
 
