@@ -143,7 +143,10 @@ function buildOutput(entries) {
 
   return `const REACTION_CATALOG_SOURCE = ${JSON.stringify(sourceMeta, null, 2)};\n\n` +
     `const REACTION_CATALOG = ${JSON.stringify(entries, null, 2)};\n\n` +
-    `const REACTION_CATALOG_CATEGORIES = ${JSON.stringify(categories, null, 2)};\n`;
+    `const REACTION_CATALOG_CATEGORIES = ${JSON.stringify(categories, null, 2)};\n\n` +
+    `globalThis.REACTION_CATALOG_SOURCE = REACTION_CATALOG_SOURCE;\n` +
+    `globalThis.REACTION_CATALOG = REACTION_CATALOG;\n` +
+    `globalThis.REACTION_CATALOG_CATEGORIES = REACTION_CATALOG_CATEGORIES;\n`;
 }
 
 function run() {
