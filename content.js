@@ -43,6 +43,7 @@ let floatingShell = null;
 let floatingLikeButton = null;
 let floatingHideTimer = null;
 const boundLikeButtons = new WeakSet();
+const enhanceRuns = new WeakMap();
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -533,18 +534,19 @@ function createCustomButton(reaction, mappedButton, likeButton) {
 }
 
 function mountReplacementTray(tray, likeButton) {
+  if (!(tray instanceof Element)) return;
   const existing = tray.querySelector(".linked-native-shell");
   if (existing) {
     existing.remove();
   }
 
   const nativeMap = findNativeMappedButtons(tray);
-  hideNativeButtonsInTray(tray, Array.from(nativeMap.values()));
-  muteNativeTrayChildren(tray);
+  // Additive mode: keep LinkedIn native tray visible and append custom tray.
+  clearNativeHiding(tray);
   tray.classList.add("linked-native-host");
 
   const shell = document.createElement("div");
-  shell.className = "linked-native-shell";
+  shell.className = "linked-native-shell linked-native-shell--inline";
 
   if (!cachedState.customReactions.length) {
     const note = document.createElement("span");
@@ -563,21 +565,37 @@ function mountReplacementTray(tray, likeButton) {
 }
 
 async function enhanceLikeButton(likeButton) {
-  if (!isVisible(likeButton)) return;
+  if (!(likeButton instanceof HTMLElement) || !isVisible(likeButton)) return;
 
-  clearFloatingHideTimer();
-  // Always show our custom tray immediately for reliability.
-  mountFloatingTray(likeButton);
-  likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+  const runId = Date.now() + Math.random();
+  enhanceRuns.set(likeButton, runId);
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    await wait(65);
-    const trays = collectTrayCandidates(likeButton);
-    if (trays.length) {
+  try {
+    clearFloatingHideTimer();
+    // Always show our custom tray immediately for reliability.
+    mountFloatingTray(likeButton);
+    likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await wait(65);
+      if (!likeButton.isConnected || enhanceRuns.get(likeButton) !== runId) {
+        return;
+      }
+
+      const trays = collectTrayCandidates(likeButton);
+      if (!trays.length) continue;
+
+      const targetTray = trays[0]?.element;
+      if (!(targetTray instanceof Element) || !targetTray.isConnected) {
+        continue;
+      }
+
       hideFloatingTray();
-      mountReplacementTray(trays[0].element, likeButton);
+      mountReplacementTray(targetTray, likeButton);
       return;
     }
+  } catch (error) {
+    console.warn("[LINKED] enhanceLikeButton failed", error);
   }
 }
 

@@ -51,6 +51,7 @@ const avatarColorEl = document.getElementById("avatarColor");
 const emojiFieldsEl = document.getElementById("emojiFields");
 const uploadFieldsEl = document.getElementById("uploadFields");
 const avatarFieldsEl = document.getElementById("avatarFields");
+const mapCatalogBtn = document.getElementById("mapCatalogBtn");
 const addBtn = document.getElementById("addBtn");
 
 const previewTrayEl = document.getElementById("previewTray");
@@ -60,6 +61,35 @@ const feedbackEl = document.getElementById("formFeedback");
 
 let uploadDataUrl = "";
 let catalogViewKind = "sticker";
+let selectedCatalogItem = null;
+const SHORTCODE_REGEX = /^:([a-z0-9_+\-]+):$/i;
+const SHORTCODE_ALIASES = Object.freeze({
+  "+1": "👍",
+  "-1": "👎",
+  thumbsup: "👍",
+  thumbsdown: "👎",
+  smile: "😄",
+  laughing: "😆",
+  blush: "😊",
+  grin: "😁",
+  wink: "😉",
+  heart: "❤️",
+  broken_heart: "💔",
+  sob: "😭",
+  joy: "😂",
+  fire: "🔥",
+  tada: "🎉",
+  clap: "👏",
+  pray: "🙏",
+  thinking: "🤔",
+  ok_hand: "👌",
+  wave: "👋",
+  rocket: "🚀",
+  eyes: "👀",
+  raised_hands: "🙌",
+  skull: "💀"
+});
+let shortcodeToEmoji = null;
 let appState = {
   reactionPacks: [],
   activePackId: "",
@@ -77,6 +107,73 @@ function normalizeAssetType(type) {
 
 function isImageDataUrl(value) {
   return /^data:image\//.test(String(value || ""));
+}
+
+function toShortcodeKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^:/, "")
+    .replace(/:$/, "")
+    .replace(/[^a-z0-9_+\- ]/g, "")
+    .replace(/\s+/g, "_");
+}
+
+function buildShortcodeIndex() {
+  if (shortcodeToEmoji) return shortcodeToEmoji;
+
+  const map = new Map(Object.entries(SHORTCODE_ALIASES));
+  const source = Array.isArray(globalThis.REACTION_CATALOG) ? globalThis.REACTION_CATALOG : [];
+
+  source.forEach((item) => {
+    const emoji = String(item?.emoji || "").trim();
+    if (!emoji) return;
+
+    const labelKey = toShortcodeKey(item?.label || "");
+    if (labelKey && !map.has(labelKey)) {
+      map.set(labelKey, emoji);
+    }
+
+    const compactLabelKey = labelKey
+      .replace(/(^|_)face(_|$)/g, "_")
+      .replace(/(^|_)with(_|$)/g, "_")
+      .replace(/(^|_)the(_|$)/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "");
+    if (compactLabelKey && !map.has(compactLabelKey)) {
+      map.set(compactLabelKey, emoji);
+    }
+  });
+
+  shortcodeToEmoji = map;
+  return map;
+}
+
+function resolveEmojiShortcode(value) {
+  const match = String(value || "").trim().match(SHORTCODE_REGEX);
+  if (!match) return null;
+
+  const index = buildShortcodeIndex();
+  const key = toShortcodeKey(match[1]);
+  if (index.has(key)) {
+    return index.get(key);
+  }
+
+  for (const [candidate, emoji] of index.entries()) {
+    if (candidate.includes(key) || key.includes(candidate)) {
+      return emoji;
+    }
+  }
+
+  return null;
+}
+
+function normalizeEmojiInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const resolved = resolveEmojiShortcode(raw);
+  return resolved || raw;
 }
 
 function displayType(type) {
@@ -286,7 +383,7 @@ function draftFromInput() {
       label: labelEl.value,
       linkedInType: linkedInTypeEl.value,
       assetType: "emoji",
-      emoji: emojiEl.value
+      emoji: normalizeEmojiInput(emojiEl.value)
     });
   }
 
@@ -314,7 +411,13 @@ function validateInputs() {
 
   if (!label) return "Enter a reaction name.";
   if (!linkedInType) return "Choose a LinkedIn mapping type.";
-  if (mode === "emoji" && !String(emojiEl.value || "").trim()) return "Enter an emoji.";
+  if (mode === "emoji") {
+    const rawEmoji = String(emojiEl.value || "").trim();
+    if (!rawEmoji) return "Enter an emoji.";
+    if (SHORTCODE_REGEX.test(rawEmoji) && !resolveEmojiShortcode(rawEmoji)) {
+      return "Shortcode not found. Pick an emoji from the browser or use a supported :shortcode:.";
+    }
+  }
   if (mode === "upload" && !isImageDataUrl(uploadDataUrl)) return "Upload an image first.";
   return null;
 }
@@ -412,6 +515,7 @@ function renderCatalogKindControls() {
 
 function loadCatalogItemIntoCreator(item) {
   if (!item || typeof item !== "object") return;
+  selectedCatalogItem = item;
 
   labelEl.value = String(item.label || "").slice(0, 20);
   linkedInTypeEl.value = inferTypeFromCatalogItem(item);
@@ -428,7 +532,45 @@ function loadCatalogItemIntoCreator(item) {
   }
 
   toggleAssetModeFields();
-  setFeedback(`Loaded ${item.label}. Adjust if needed, then click Add Custom Reaction.`);
+  setFeedback(`Selected ${item.label}. Choose LinkedIn mapping and click Map Selected Sticker/Emoji + Add.`);
+  refreshUI();
+}
+
+async function addMappedCatalogSelection() {
+  if (!selectedCatalogItem) {
+    setFeedback("Select a sticker/emoji from the browser first.", true);
+    return;
+  }
+
+  const linkedInType = normalizeType(linkedInTypeEl.value);
+  if (!linkedInType) {
+    setFeedback("Choose a LinkedIn mapping type.", true);
+    return;
+  }
+
+  const pack = getActivePack();
+  if (!pack) {
+    setFeedback("No reaction tray available.", true);
+    return;
+  }
+
+  const label = String(labelEl.value || selectedCatalogItem.label || "").trim().slice(0, 20);
+  const next = sanitizeCustomReaction({
+    label,
+    linkedInType,
+    assetType: isImageDataUrl(selectedCatalogItem.assetData) ? "upload" : "emoji",
+    emoji: String(selectedCatalogItem.emoji || "").trim(),
+    assetData: String(selectedCatalogItem.assetData || "").trim()
+  });
+
+  if (!next) {
+    setFeedback("Could not map selected sticker/emoji.", true);
+    return;
+  }
+
+  pack.reactions.push(next);
+  await persistLocal();
+  setFeedback(`Mapped ${next.label} to ${displayType(linkedInType)} and added.`);
   refreshUI();
 }
 
@@ -671,6 +813,21 @@ addBtn.addEventListener("click", async () => {
   await persistLocal();
   resetCreatorInputs();
   setFeedback("Added reaction.");
+  refreshUI();
+});
+
+mapCatalogBtn.addEventListener("click", async () => {
+  await addMappedCatalogSelection();
+});
+
+emojiEl.addEventListener("blur", () => {
+  const raw = String(emojiEl.value || "").trim();
+  if (!SHORTCODE_REGEX.test(raw)) return;
+
+  const resolved = resolveEmojiShortcode(raw);
+  if (!resolved) return;
+  emojiEl.value = resolved;
+  setFeedback(`Converted ${raw} to ${resolved}.`);
   refreshUI();
 });
 

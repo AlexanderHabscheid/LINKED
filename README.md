@@ -9,6 +9,7 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
   - Emoji
   - Upload Image (auto-normalized square sticker)
   - Avatar Sticker (initials + mood + color)
+- Emoji shortcode input in creator field (example: `:fire:` -> 🔥)
 - Emojipedia-style reaction browser:
   - Search
   - Category filtering
@@ -32,6 +33,8 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
 - `chrome.storage.sync`: `hiddenBuiltins`
 
 Backward compatibility migration from old single-list models is automatic.
+
+Emoji shortcut reference: `docs/emoji-cheat-sheet.md`
 
 ## Catalog Pipeline CLI
 
