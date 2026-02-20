@@ -443,7 +443,9 @@ function inferTypeFromCatalogItem(item) {
 
 function initCatalogCategories() {
   catalogCategoryEl.innerHTML = "";
-  const categories = Array.isArray(REACTION_CATALOG_CATEGORIES) ? REACTION_CATALOG_CATEGORIES : ["All"];
+  const categories = Array.isArray(globalThis.REACTION_CATALOG_CATEGORIES)
+    ? globalThis.REACTION_CATALOG_CATEGORIES
+    : ["All"];
 
   categories.forEach((category) => {
     const option = document.createElement("option");
@@ -482,7 +484,7 @@ function addCatalogItemToActivePack(item) {
 function renderCatalog() {
   const query = String(catalogSearchEl.value || "").trim().toLowerCase();
   const selectedCategory = String(catalogCategoryEl.value || "All");
-  const source = Array.isArray(REACTION_CATALOG) ? REACTION_CATALOG : [];
+  const source = Array.isArray(globalThis.REACTION_CATALOG) ? globalThis.REACTION_CATALOG : [];
 
   const filtered = source.filter((item) => {
     const categoryMatch = selectedCategory === "All" || item.category === selectedCategory;
