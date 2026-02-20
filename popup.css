@@ -197,6 +197,13 @@ button.secondary {
   font-size: 20px;
 }
 
+.catalog-item-emoji img {
+  width: 22px;
+  height: 22px;
+  display: block;
+  object-fit: contain;
+}
+
 .catalog-item-label {
   font-size: 12px;
   font-weight: 700;

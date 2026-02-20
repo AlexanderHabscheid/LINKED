@@ -39,6 +39,9 @@ let cachedState = {
   customReactions: [],
   hiddenBuiltins: []
 };
+let floatingShell = null;
+let floatingLikeButton = null;
+let floatingHideTimer = null;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -331,21 +334,114 @@ function findNativeMappedButtons(tray) {
 async function fallbackApplyReaction(likeButton, type) {
   if (!likeButton) return;
 
+  const postRoot = likeButton.closest(
+    "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+  ) || document;
+  const label = TYPE_TO_LABEL[type] || "Like";
+
+  const findOption = () => {
+    const options = postRoot.querySelectorAll(
+      `button[aria-label*='${label}'], [role='button'][aria-label*='${label}']`
+    );
+    for (const option of options) {
+      if (isVisible(option) && looksLikeReactionButton(option)) {
+        return option;
+      }
+    }
+    return null;
+  };
+
+  likeButton.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
   likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+  likeButton.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+  likeButton.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+  await wait(260);
+
+  const direct = findOption();
+  if (direct) {
+    direct.click();
+    return;
+  }
+
+  if (type === "like") {
+    likeButton.click();
+    return;
+  }
+
   likeButton.click();
   await wait(220);
+  const afterClick = findOption();
+  if (afterClick) {
+    afterClick.click();
+  }
+}
 
-  const label = TYPE_TO_LABEL[type] || "Like";
-  const options = document.querySelectorAll(
-    `button[aria-label*='${label}'], [role='button'][aria-label*='${label}']`
-  );
+function clearFloatingHideTimer() {
+  if (!floatingHideTimer) return;
+  clearTimeout(floatingHideTimer);
+  floatingHideTimer = null;
+}
 
-  for (const option of options) {
-    if (isVisible(option) && looksLikeReactionButton(option)) {
-      option.click();
-      return;
+function hideFloatingTray() {
+  clearFloatingHideTimer();
+  if (!floatingShell) return;
+  floatingShell.remove();
+  floatingShell = null;
+  floatingLikeButton = null;
+}
+
+function ensureFloatingShell() {
+  if (floatingShell && floatingShell.isConnected) {
+    return floatingShell;
+  }
+
+  const shell = document.createElement("div");
+  shell.className = "linked-native-shell linked-floating-shell";
+  shell.addEventListener("mouseenter", () => {
+    clearFloatingHideTimer();
+  });
+  shell.addEventListener("mouseleave", () => {
+    floatingHideTimer = window.setTimeout(() => hideFloatingTray(), 120);
+  });
+  floatingShell = shell;
+  return shell;
+}
+
+function positionFloatingTray(likeButton) {
+  if (!floatingShell || !likeButton || !isVisible(likeButton)) return;
+  const rect = likeButton.getBoundingClientRect();
+  const shellRect = floatingShell.getBoundingClientRect();
+  const left = rect.left + rect.width / 2 - shellRect.width / 2;
+  const top = rect.top - shellRect.height - 10;
+  const clampedLeft = Math.max(8, Math.min(left, window.innerWidth - shellRect.width - 8));
+  const clampedTop = Math.max(8, top);
+  floatingShell.style.left = `${clampedLeft}px`;
+  floatingShell.style.top = `${clampedTop}px`;
+}
+
+function mountFloatingTray(likeButton) {
+  if (!likeButton || !isVisible(likeButton)) return;
+
+  const shell = ensureFloatingShell();
+  floatingLikeButton = likeButton;
+  shell.innerHTML = "";
+
+  if (!cachedState.customReactions.length) {
+    const note = document.createElement("span");
+    note.className = "linked-native-empty";
+    note.textContent = "Add custom reactions in LINKED popup";
+    shell.appendChild(note);
+  } else {
+    for (const reaction of cachedState.customReactions) {
+      shell.appendChild(createCustomButton(reaction, null, likeButton));
     }
   }
+
+  if (!shell.isConnected) {
+    document.body.appendChild(shell);
+  }
+
+  positionFloatingTray(likeButton);
 }
 
 function sanitizeClonedNodeAttributes(root) {
@@ -445,16 +541,20 @@ function mountReplacementTray(tray, likeButton) {
 async function enhanceLikeButton(likeButton) {
   if (!isVisible(likeButton)) return;
 
+  clearFloatingHideTimer();
   likeButton.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     await wait(65);
     const trays = collectTrayCandidates(likeButton);
     if (trays.length) {
+      hideFloatingTray();
       mountReplacementTray(trays[0].element, likeButton);
       return;
     }
   }
+
+  mountFloatingTray(likeButton);
 }
 
 function bindActionBar(actionBar) {
@@ -469,6 +569,14 @@ function bindActionBar(actionBar) {
 
   likeButton.addEventListener("focus", () => {
     enhanceLikeButton(likeButton);
+  });
+
+  likeButton.addEventListener("mouseleave", () => {
+    floatingHideTimer = window.setTimeout(() => hideFloatingTray(), 120);
+  });
+
+  likeButton.addEventListener("blur", () => {
+    floatingHideTimer = window.setTimeout(() => hideFloatingTray(), 120);
   });
 
   actionBar.dataset.linkedBound = "true";
@@ -506,6 +614,7 @@ function applyHiddenBuiltins() {
 function refreshMountedTrays() {
   const shells = document.querySelectorAll(".linked-native-shell");
   for (const shell of shells) {
+    if (shell.classList.contains("linked-floating-shell")) continue;
     const tray = shell.parentElement;
     if (!tray) continue;
 
@@ -514,6 +623,10 @@ function refreshMountedTrays() {
 
     const likeButton = actionBar ? getLikeButtonInActionBar(actionBar) : null;
     mountReplacementTray(tray, likeButton);
+  }
+
+  if (floatingShell && floatingLikeButton) {
+    mountFloatingTray(floatingLikeButton);
   }
 }
 
@@ -539,6 +652,9 @@ const observer = new MutationObserver(() => {
     bindActionBar(actionBar);
   }
   applyHiddenBuiltins();
+  if (floatingShell && floatingLikeButton) {
+    positionFloatingTray(floatingLikeButton);
+  }
 });
 
 observer.observe(document.documentElement, {
@@ -547,3 +663,28 @@ observer.observe(document.documentElement, {
 });
 
 refreshAll();
+
+window.addEventListener("scroll", () => {
+  if (floatingShell && floatingLikeButton) {
+    positionFloatingTray(floatingLikeButton);
+  }
+}, true);
+
+window.addEventListener("resize", () => {
+  if (floatingShell && floatingLikeButton) {
+    positionFloatingTray(floatingLikeButton);
+  }
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (!floatingShell) return;
+  const target = event.target;
+  if (target instanceof Node && floatingShell.contains(target)) return;
+  hideFloatingTray();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideFloatingTray();
+  }
+});

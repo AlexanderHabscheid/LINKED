@@ -38,7 +38,6 @@ const newPackBtn = document.getElementById("newPackBtn");
 const dupPackBtn = document.getElementById("dupPackBtn");
 const renamePackBtn = document.getElementById("renamePackBtn");
 const delPackBtn = document.getElementById("delPackBtn");
-const proSetBtn = document.getElementById("proSetBtn");
 const packMetaEl = document.getElementById("packMeta");
 const catalogSearchEl = document.getElementById("catalogSearch");
 const catalogCategoryEl = document.getElementById("catalogCategory");
@@ -248,47 +247,6 @@ function generateAvatarDataUrl(initials, mood, color) {
   `;
 
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function buildProSet() {
-  return [
-    {
-      label: "Approve",
-      linkedInType: "like",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("OK", "✓", "#3b82f6")
-    },
-    {
-      label: "Respect",
-      linkedInType: "celebrate",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("GG", "★", "#22c55e")
-    },
-    {
-      label: "Support",
-      linkedInType: "support",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("US", "♥", "#fb7185")
-    },
-    {
-      label: "Love It",
-      linkedInType: "love",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("LV", "✦", "#a78bfa")
-    },
-    {
-      label: "Insight",
-      linkedInType: "insightful",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("IQ", "💡", "#f59e0b")
-    },
-    {
-      label: "Laugh",
-      linkedInType: "funny",
-      assetType: "avatar",
-      assetData: generateAvatarDataUrl("HA", "☺", "#06b6d4")
-    }
-  ].map(sanitizeCustomReaction).filter(Boolean);
 }
 
 async function readFileAsDataUrl(file) {
@@ -541,7 +499,15 @@ function renderCatalog() {
 
     const icon = document.createElement("span");
     icon.className = "catalog-item-emoji";
-    icon.textContent = item.emoji;
+    if (isImageDataUrl(item.assetData)) {
+      const img = document.createElement("img");
+      img.src = item.assetData;
+      img.alt = item.label;
+      img.loading = "lazy";
+      icon.appendChild(img);
+    } else {
+      icon.textContent = item.emoji;
+    }
 
     const text = document.createElement("span");
     text.className = "catalog-item-label";
@@ -773,21 +739,6 @@ async function deletePack() {
   refreshUI();
 }
 
-async function applyProSet() {
-  const active = getActivePack();
-  if (!active) return;
-
-  const overwrite = active.reactions.length > 0
-    ? window.confirm("Replace current pack reactions with the Pro Set?")
-    : true;
-  if (!overwrite) return;
-
-  active.reactions = buildProSet();
-  await persistLocal();
-  setFeedback("Applied Pro Set.");
-  refreshUI();
-}
-
 addBtn.addEventListener("click", async () => {
   const validationError = validateInputs();
   if (validationError) {
@@ -818,7 +769,6 @@ newPackBtn.addEventListener("click", createPack);
 dupPackBtn.addEventListener("click", duplicatePack);
 renamePackBtn.addEventListener("click", renamePack);
 delPackBtn.addEventListener("click", deletePack);
-proSetBtn.addEventListener("click", applyProSet);
 
 packSelectEl.addEventListener("change", async () => {
   const nextId = String(packSelectEl.value || "");

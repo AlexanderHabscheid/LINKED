@@ -20,6 +20,14 @@
   overflow-x: auto;
 }
 
+.linked-floating-shell {
+  position: fixed;
+  inset: auto;
+  z-index: 2147483646;
+  min-height: 52px;
+  max-width: min(92vw, 420px);
+}
+
 .linked-native-reaction {
   cursor: pointer;
 }
