@@ -504,6 +504,37 @@ function applyReactionVisual(button, reaction) {
   button.appendChild(visual);
 }
 
+function clearLikeButtonCustomVisual(likeButton) {
+  if (!(likeButton instanceof HTMLElement)) return;
+  const marker = likeButton.querySelector(".linked-like-custom-marker");
+  if (marker) marker.remove();
+  likeButton.classList.remove("linked-like-button--custom");
+  likeButton.removeAttribute("data-linked-custom-type");
+}
+
+function applyLikeButtonCustomVisual(likeButton, reaction) {
+  if (!(likeButton instanceof HTMLElement) || !reaction) return;
+  clearLikeButtonCustomVisual(likeButton);
+
+  const marker = document.createElement("span");
+  marker.className = "linked-like-custom-marker";
+  marker.setAttribute("aria-hidden", "true");
+
+  if ((reaction.assetType === "upload" || reaction.assetType === "avatar") && isImageDataUrl(reaction.assetData)) {
+    const img = document.createElement("img");
+    img.src = reaction.assetData;
+    img.alt = "";
+    img.className = "linked-like-custom-marker-image";
+    marker.appendChild(img);
+  } else {
+    marker.textContent = reaction.emoji || "🙂";
+  }
+
+  likeButton.classList.add("linked-like-button--custom");
+  likeButton.setAttribute("data-linked-custom-type", reaction.linkedInType);
+  likeButton.prepend(marker);
+}
+
 function createCustomButton(reaction, mappedButton, likeButton) {
   const button = mappedButton
     ? mappedButton.cloneNode(true)
@@ -524,10 +555,14 @@ function createCustomButton(reaction, mappedButton, likeButton) {
 
     if (mappedButton) {
       mappedButton.click();
+      window.setTimeout(() => applyLikeButtonCustomVisual(likeButton, reaction), 40);
       return;
     }
 
-    await fallbackApplyReaction(likeButton, reaction.linkedInType);
+    const applied = await fallbackApplyReaction(likeButton, reaction.linkedInType);
+    if (applied) {
+      window.setTimeout(() => applyLikeButtonCustomVisual(likeButton, reaction), 40);
+    }
   });
 
   return button;

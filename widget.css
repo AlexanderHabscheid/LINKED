@@ -89,3 +89,30 @@
   color: #5f6b7b;
   padding: 4px 2px;
 }
+
+.linked-like-button--custom {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.linked-like-custom-marker {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 16px;
+  overflow: hidden;
+}
+
+.linked-like-custom-marker-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+}
