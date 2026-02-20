@@ -36,7 +36,10 @@ const REACTION_TYPES = new Set(REACTIONS.map((item) => item.type));
 const packSelectEl = document.getElementById("packSelect");
 const newPackBtn = document.getElementById("newPackBtn");
 const dupPackBtn = document.getElementById("dupPackBtn");
+const renamePackBtn = document.getElementById("renamePackBtn");
 const delPackBtn = document.getElementById("delPackBtn");
+const proSetBtn = document.getElementById("proSetBtn");
+const packMetaEl = document.getElementById("packMeta");
 
 const labelEl = document.getElementById("label");
 const assetModeEl = document.getElementById("assetMode");
@@ -243,6 +246,47 @@ function generateAvatarDataUrl(initials, mood, color) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+function buildProSet() {
+  return [
+    {
+      label: "Approve",
+      linkedInType: "like",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("OK", "✓", "#3b82f6")
+    },
+    {
+      label: "Respect",
+      linkedInType: "celebrate",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("GG", "★", "#22c55e")
+    },
+    {
+      label: "Support",
+      linkedInType: "support",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("US", "♥", "#fb7185")
+    },
+    {
+      label: "Love It",
+      linkedInType: "love",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("LV", "✦", "#a78bfa")
+    },
+    {
+      label: "Insight",
+      linkedInType: "insightful",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("IQ", "💡", "#f59e0b")
+    },
+    {
+      label: "Laugh",
+      linkedInType: "funny",
+      assetType: "avatar",
+      assetData: generateAvatarDataUrl("HA", "☺", "#06b6d4")
+    }
+  ].map(sanitizeCustomReaction).filter(Boolean);
+}
+
 async function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -337,6 +381,24 @@ function buildPreviewVisual(item, isDraft = false) {
   return el;
 }
 
+function createPackThumb(item) {
+  const thumb = document.createElement("div");
+  thumb.className = "pack-meta-thumb";
+
+  if ((item?.assetType === "upload" || item?.assetType === "avatar") && isImageDataUrl(item?.assetData)) {
+    const img = document.createElement("img");
+    img.src = item.assetData;
+    img.alt = item.label || "Pack cover";
+    thumb.appendChild(img);
+  } else if (item?.emoji) {
+    thumb.textContent = item.emoji;
+  } else {
+    thumb.textContent = "∎";
+  }
+
+  return thumb;
+}
+
 function renderPackSelector() {
   packSelectEl.innerHTML = "";
   appState.reactionPacks.forEach((pack) => {
@@ -347,6 +409,18 @@ function renderPackSelector() {
   });
   packSelectEl.value = appState.activePackId;
   delPackBtn.disabled = appState.reactionPacks.length <= 1;
+}
+
+function renderPackMeta(activePack) {
+  packMetaEl.innerHTML = "";
+  if (!activePack) {
+    return;
+  }
+
+  packMetaEl.appendChild(createPackThumb(activePack.reactions[0]));
+  const text = document.createElement("span");
+  text.textContent = `${activePack.name} • ${activePack.reactions.length} reactions`;
+  packMetaEl.appendChild(text);
 }
 
 function renderPreviewTray(activeReactions, draft = null) {
@@ -448,6 +522,7 @@ function renderBuiltinToggles() {
 function refreshUI() {
   const activePack = getActivePack();
   renderPackSelector();
+  renderPackMeta(activePack);
   renderBuiltinToggles();
   renderCustomList(activePack ? activePack.reactions : []);
   renderPreviewTray(activePack ? activePack.reactions : [], draftFromInput());
@@ -527,6 +602,19 @@ async function duplicatePack() {
   refreshUI();
 }
 
+async function renamePack() {
+  const active = getActivePack();
+  if (!active) return;
+
+  const nextName = window.prompt("Rename pack", active.name);
+  if (!nextName) return;
+
+  active.name = String(nextName).trim().slice(0, 24) || active.name;
+  await persistLocal();
+  setFeedback("Renamed pack.");
+  refreshUI();
+}
+
 async function deletePack() {
   if (appState.reactionPacks.length <= 1) {
     setFeedback("At least one pack is required.", true);
@@ -544,6 +632,21 @@ async function deletePack() {
 
   await persistLocal();
   setFeedback("Deleted pack.");
+  refreshUI();
+}
+
+async function applyProSet() {
+  const active = getActivePack();
+  if (!active) return;
+
+  const overwrite = active.reactions.length > 0
+    ? window.confirm("Replace current pack reactions with the Pro Set?")
+    : true;
+  if (!overwrite) return;
+
+  active.reactions = buildProSet();
+  await persistLocal();
+  setFeedback("Applied Pro Set.");
   refreshUI();
 }
 
@@ -575,7 +678,9 @@ addBtn.addEventListener("click", async () => {
 
 newPackBtn.addEventListener("click", createPack);
 dupPackBtn.addEventListener("click", duplicatePack);
+renamePackBtn.addEventListener("click", renamePack);
 delPackBtn.addEventListener("click", deletePack);
+proSetBtn.addEventListener("click", applyProSet);
 
 packSelectEl.addEventListener("change", async () => {
   const nextId = String(packSelectEl.value || "");

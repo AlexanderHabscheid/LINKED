@@ -13,7 +13,10 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
   - Create Pack
   - Duplicate Pack
   - Set Active Pack
+  - Rename Pack
   - Delete Pack
+- Pack thumbnail + quick metadata for active pack
+- One-click Pro Set generator (professional starter reactions)
 - Canonical LinkedIn mapping: each custom reaction maps to one native type (`like`, `celebrate`, `support`, `love`, `insightful`, `funny`)
 - Import/export for active pack
 - Hide selected native reactions

@@ -308,6 +308,7 @@ li:last-child {
   display: flex;
   gap: 6px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .row-actions button {
@@ -316,6 +317,34 @@ li:last-child {
 
 .row-actions .danger {
   background: linear-gradient(130deg, #e33b66, var(--danger));
+}
+
+.pack-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #32506d;
+}
+
+.pack-meta-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid #d4ddea;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  font-size: 14px;
+}
+
+.pack-meta-thumb img {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 999px;
 }
 
 .note {
