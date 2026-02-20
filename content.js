@@ -368,10 +368,11 @@ function hideNativeButtonsInTray(tray, buttons) {
   for (const button of buttons) {
     button.style.visibility = "hidden";
     button.style.pointerEvents = "none";
-    button.style.width = "0";
-    button.style.height = "0";
-    button.style.margin = "0";
-    button.style.padding = "0";
+    // Keep layout footprint so tray geometry does not collapse.
+    button.style.width = "";
+    button.style.height = "";
+    button.style.margin = "";
+    button.style.padding = "";
     button.setAttribute("data-linked-hidden-native", "true");
   }
 }
@@ -715,13 +716,12 @@ function mountReplacementTray(tray, likeButton) {
     existing.remove();
   }
 
-  // Strict overlay mode: fully hide native tray affordances and render custom-only UI.
-  hideNativeButtonsInTray(tray, collectReactionButtons(tray));
-  muteNativeTrayChildren(tray);
+  // Additive mode: keep native tray visible; render custom tray alongside it.
+  clearNativeHiding(tray);
   tray.classList.add("linked-native-host");
 
   const shell = document.createElement("div");
-  shell.className = "linked-native-shell";
+  shell.className = "linked-native-shell linked-native-shell--inline";
 
   if (!cachedState.customReactions.length) {
     const note = document.createElement("span");
