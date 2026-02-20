@@ -99,10 +99,27 @@
 
 .linked-like-button--custom {
   position: relative;
+  color: transparent !important;
+  background-image: none !important;
+}
+
+.linked-like-button--custom::before,
+.linked-like-button--custom::after {
+  content: none !important;
+  display: none !important;
 }
 
 .linked-like-button--custom > :not(.linked-like-custom-overlay) {
   opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.linked-like-button--custom svg,
+.linked-like-button--custom img,
+.linked-like-button--custom [class*="icon"],
+.linked-like-button--custom [class*="reaction"] {
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 .linked-like-custom-overlay {
@@ -141,4 +158,9 @@
   line-height: 1;
   color: #445064;
   white-space: nowrap;
+}
+
+[data-linked-summary-overridden="true"] {
+  display: inline-flex !important;
+  align-items: center;
 }

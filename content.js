@@ -47,6 +47,8 @@ const enhanceRuns = new WeakMap();
 const enhancingLikeButtons = new WeakSet();
 const selectedReactionByPost = new WeakMap();
 const selectedReactionByKey = new Map();
+const warnedMissingOptionTypes = new Set();
+const originalSummaryMarkup = new WeakMap();
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -211,6 +213,29 @@ function reactionTypeFromText(label) {
   return null;
 }
 
+function reactionTypeFromNode(node) {
+  if (!(node instanceof HTMLElement)) return null;
+
+  const byText = reactionTypeFromText(textOf(node));
+  if (byText) return byText;
+
+  const combined = [
+    node.getAttribute("data-control-name"),
+    node.getAttribute("data-test-reaction"),
+    node.getAttribute("data-test-id"),
+    node.getAttribute("id"),
+    node.className
+  ].join(" ").toLowerCase();
+
+  for (const reaction of REACTIONS) {
+    if (combined.includes(reaction.type)) {
+      return reaction.type;
+    }
+  }
+
+  return null;
+}
+
 function getActionBars() {
   return document.querySelectorAll(
     "div.feed-shared-social-action-bar, div.social-details-social-actions, div[class*='social-action-bar']"
@@ -357,17 +382,15 @@ async function fallbackApplyReaction(likeButton, type) {
   const postRoot = likeButton.closest(
     "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
   ) || document;
-  const label = TYPE_TO_LABEL[type] || "Like";
 
   const findOption = () => {
-    const options = postRoot.querySelectorAll(
-      `button[aria-label*='${label}'], [role='button'][aria-label*='${label}']`
-    );
+    const options = postRoot.querySelectorAll("button, [role='button']");
     for (const option of options) {
       if (!(option instanceof HTMLElement)) continue;
       if (option === likeButton) continue;
       if (option.closest(".linked-native-shell")) continue;
-      if (!looksLikeReactionButton(option)) continue;
+      if (option.hasAttribute("disabled") || option.getAttribute("aria-disabled") === "true") continue;
+      if (reactionTypeFromNode(option) !== type) continue;
       return option;
     }
     return null;
@@ -381,6 +404,13 @@ async function fallbackApplyReaction(likeButton, type) {
 
   const direct = findOption();
   if (direct) {
+    try {
+      direct.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      direct.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      direct.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    } catch (_error) {
+      // No-op: best effort event simulation before click.
+    }
     direct.click();
     return true;
   }
@@ -390,9 +420,11 @@ async function fallbackApplyReaction(likeButton, type) {
     return true;
   }
 
-  // Do not click Like for non-like mappings if we cannot find explicit options.
-  // This prevents accidental fallback to a default Like reaction.
-  console.warn("[LINKED] Non-like reaction option not found; skipping fallback click.", { type });
+  // Avoid console spam on repeated misses for the same type.
+  if (!warnedMissingOptionTypes.has(type)) {
+    warnedMissingOptionTypes.add(type);
+    console.warn("[LINKED] Non-like reaction option not found; skipping fallback click.", { type });
+  }
   return false;
 }
 
@@ -528,13 +560,18 @@ function clearLikeButtonCustomVisual(likeButton) {
 function clearSummaryCustomVisual(postRoot) {
   if (!(postRoot instanceof HTMLElement)) return;
 
-  for (const node of postRoot.querySelectorAll(".linked-summary-custom-marker")) {
-    node.remove();
-  }
-
-  for (const node of postRoot.querySelectorAll("[data-linked-hidden-summary-native='true']")) {
-    node.style.display = "";
-    node.removeAttribute("data-linked-hidden-summary-native");
+  const hosts = postRoot.querySelectorAll("[data-linked-summary-overridden='true']");
+  for (const host of hosts) {
+    if (!(host instanceof HTMLElement)) continue;
+    const original = originalSummaryMarkup.get(host);
+    if (typeof original === "string") {
+      host.innerHTML = original;
+    } else {
+      for (const marker of host.querySelectorAll(".linked-summary-custom-marker")) {
+        marker.remove();
+      }
+    }
+    host.removeAttribute("data-linked-summary-overridden");
   }
 }
 
@@ -548,11 +585,11 @@ function applySummaryCustomVisual(postRoot, reaction) {
 
   clearSummaryCustomVisual(postRoot);
 
-  for (const node of host.querySelectorAll("img, svg, [class*='reactions-icon'], [class*='social-proof-icon']")) {
-    if (!(node instanceof HTMLElement)) continue;
-    node.style.display = "none";
-    node.setAttribute("data-linked-hidden-summary-native", "true");
+  if (!originalSummaryMarkup.has(host)) {
+    originalSummaryMarkup.set(host, host.innerHTML);
   }
+  host.setAttribute("data-linked-summary-overridden", "true");
+  host.innerHTML = "";
 
   const marker = document.createElement("span");
   marker.className = "linked-summary-custom-marker";
@@ -807,12 +844,15 @@ function applyHiddenBuiltins() {
 }
 
 function scrubInvalidExtensionResources(root = document) {
-  const candidates = root.querySelectorAll(
-    ".linked-native-shell img[src^='chrome-extension://invalid/'], .linked-like-button--custom img[src^='chrome-extension://invalid/'], img[src^='chrome-extension://invalid/'][class*='linked-']"
-  );
+  const candidates = root.querySelectorAll("img[src^='chrome-extension://invalid/']");
 
   for (const img of candidates) {
-    img.removeAttribute("src");
+    img.remove();
+  }
+
+  const sources = root.querySelectorAll("source[srcset*='chrome-extension://invalid/']");
+  for (const source of sources) {
+    source.removeAttribute("srcset");
   }
 }
 
