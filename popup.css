@@ -165,6 +165,48 @@ button.secondary {
   box-shadow: var(--shadow-pill);
 }
 
+.catalog-grid {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.catalog-item {
+  margin: 0;
+  padding: 7px;
+  border-radius: 10px;
+  border: 1px solid #d4deec;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0e1f33;
+  box-shadow: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 7px;
+  row-gap: 1px;
+  align-items: center;
+  text-align: left;
+}
+
+.catalog-item-emoji {
+  grid-row: 1 / span 2;
+  font-size: 20px;
+}
+
+.catalog-item-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.catalog-item-category {
+  font-size: 10px;
+  color: #48617b;
+}
+
 .feedback {
   min-height: 16px;
   margin: 2px 0 0;

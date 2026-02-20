@@ -40,6 +40,9 @@ const renamePackBtn = document.getElementById("renamePackBtn");
 const delPackBtn = document.getElementById("delPackBtn");
 const proSetBtn = document.getElementById("proSetBtn");
 const packMetaEl = document.getElementById("packMeta");
+const catalogSearchEl = document.getElementById("catalogSearch");
+const catalogCategoryEl = document.getElementById("catalogCategory");
+const catalogGridEl = document.getElementById("catalogGrid");
 
 const labelEl = document.getElementById("label");
 const assetModeEl = document.getElementById("assetMode");
@@ -423,6 +426,116 @@ function renderPackMeta(activePack) {
   packMetaEl.appendChild(text);
 }
 
+function inferTypeFromCatalogItem(item) {
+  const normalized = normalizeType(item.linkedInType);
+  if (normalized) {
+    return normalized;
+  }
+
+  const category = String(item.category || "").toLowerCase();
+  if (category.includes("celebr")) return "celebrate";
+  if (category.includes("support")) return "support";
+  if (category.includes("love")) return "love";
+  if (category.includes("insight") || category.includes("learn") || category.includes("tech")) return "insightful";
+  if (category.includes("fun")) return "funny";
+  return "like";
+}
+
+function initCatalogCategories() {
+  catalogCategoryEl.innerHTML = "";
+  const categories = Array.isArray(REACTION_CATALOG_CATEGORIES) ? REACTION_CATALOG_CATEGORIES : ["All"];
+
+  categories.forEach((category) => {
+    const option = document.createElement("option");
+    option.value = category;
+    option.textContent = category;
+    catalogCategoryEl.appendChild(option);
+  });
+}
+
+function addCatalogItemToActivePack(item) {
+  const active = getActivePack();
+  if (!active) {
+    setFeedback("No active pack available.", true);
+    return;
+  }
+
+  const next = sanitizeCustomReaction({
+    label: item.label,
+    linkedInType: inferTypeFromCatalogItem(item),
+    assetType: "emoji",
+    emoji: item.emoji
+  });
+
+  if (!next) {
+    setFeedback("Could not add selected catalog item.", true);
+    return;
+  }
+
+  active.reactions.push(next);
+  persistLocal().then(() => {
+    setFeedback(`Added ${item.label} to ${active.name}.`);
+    refreshUI();
+  });
+}
+
+function renderCatalog() {
+  const query = String(catalogSearchEl.value || "").trim().toLowerCase();
+  const selectedCategory = String(catalogCategoryEl.value || "All");
+  const source = Array.isArray(REACTION_CATALOG) ? REACTION_CATALOG : [];
+
+  const filtered = source.filter((item) => {
+    const categoryMatch = selectedCategory === "All" || item.category === selectedCategory;
+    if (!categoryMatch) return false;
+    if (!query) return true;
+
+    const haystack = [
+      item.label,
+      item.emoji,
+      item.category,
+      ...(Array.isArray(item.keywords) ? item.keywords : [])
+    ].join(" ").toLowerCase();
+
+    return haystack.includes(query);
+  });
+
+  catalogGridEl.innerHTML = "";
+
+  if (!filtered.length) {
+    const empty = document.createElement("div");
+    empty.className = "preview-empty";
+    empty.textContent = "No matches";
+    catalogGridEl.appendChild(empty);
+    return;
+  }
+
+  filtered.slice(0, 80).forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "catalog-item";
+    button.title = `${item.label} (${item.category})`;
+
+    const icon = document.createElement("span");
+    icon.className = "catalog-item-emoji";
+    icon.textContent = item.emoji;
+
+    const text = document.createElement("span");
+    text.className = "catalog-item-label";
+    text.textContent = item.label;
+
+    const category = document.createElement("span");
+    category.className = "catalog-item-category";
+    category.textContent = item.category;
+
+    button.appendChild(icon);
+    button.appendChild(text);
+    button.appendChild(category);
+
+    button.addEventListener("click", () => addCatalogItemToActivePack(item));
+    catalogGridEl.appendChild(button);
+  });
+}
+
 function renderPreviewTray(activeReactions, draft = null) {
   previewTrayEl.innerHTML = "";
   const combined = [...activeReactions];
@@ -526,6 +639,7 @@ function refreshUI() {
   renderBuiltinToggles();
   renderCustomList(activePack ? activePack.reactions : []);
   renderPreviewTray(activePack ? activePack.reactions : [], draftFromInput());
+  renderCatalog();
 }
 
 function resetCreatorInputs() {
@@ -723,6 +837,14 @@ assetModeEl.addEventListener("change", () => {
   refreshUI();
 });
 
+catalogSearchEl.addEventListener("input", () => {
+  renderCatalog();
+});
+
+catalogCategoryEl.addEventListener("change", () => {
+  renderCatalog();
+});
+
 for (const el of [labelEl, emojiEl, linkedInTypeEl, avatarInitialsEl, avatarMoodEl, avatarColorEl]) {
   el.addEventListener("input", () => {
     if (feedbackEl.classList.contains("error")) {
@@ -796,5 +918,6 @@ chrome.storage.onChanged.addListener(async (_changes, areaName) => {
 (async () => {
   await migrateAndLoadState();
   toggleAssetModeFields();
+  initCatalogCategories();
   refreshUI();
 })();

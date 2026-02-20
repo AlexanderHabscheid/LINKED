@@ -9,6 +9,10 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
   - Emoji
   - Upload Image (auto-normalized square sticker)
   - Avatar Sticker (initials + mood + color)
+- Emojipedia-style reaction browser:
+  - Search
+  - Category filtering
+  - One-click add to active pack
 - Pack management:
   - Create Pack
   - Duplicate Pack

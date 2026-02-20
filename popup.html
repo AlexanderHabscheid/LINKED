@@ -30,6 +30,15 @@
       </section>
 
       <section class="card card-accent">
+        <h2>Reaction Browser</h2>
+        <label for="catalogSearch">Search</label>
+        <input id="catalogSearch" maxlength="40" placeholder="Search reactions (idea, support, celebrate...)" />
+        <label for="catalogCategory">Category</label>
+        <select id="catalogCategory"></select>
+        <div id="catalogGrid" class="catalog-grid"></div>
+      </section>
+
+      <section class="card card-accent">
         <h2>Create Reaction</h2>
 
         <label for="label">Name</label>
@@ -109,6 +118,7 @@
       <p class="note">Reload LinkedIn tabs after updating settings.</p>
     </main>
 
+    <script src="reaction-catalog.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
