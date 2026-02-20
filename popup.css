@@ -207,6 +207,12 @@ button.secondary {
   color: #48617b;
 }
 
+.catalog-attribution {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #425d79;
+}
+
 .feedback {
   min-height: 16px;
   margin: 2px 0 0;

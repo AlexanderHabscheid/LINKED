@@ -43,6 +43,7 @@ const packMetaEl = document.getElementById("packMeta");
 const catalogSearchEl = document.getElementById("catalogSearch");
 const catalogCategoryEl = document.getElementById("catalogCategory");
 const catalogGridEl = document.getElementById("catalogGrid");
+const catalogAttributionEl = document.getElementById("catalogAttribution");
 
 const labelEl = document.getElementById("label");
 const assetModeEl = document.getElementById("assetMode");
@@ -455,6 +456,26 @@ function initCatalogCategories() {
   });
 }
 
+function renderCatalogAttribution() {
+  const source = globalThis.REACTION_CATALOG_SOURCE || {};
+  const provider = source.provider ? String(source.provider) : "Catalog";
+  const license = source.license ? String(source.license) : "";
+  const generatedAt = source.generatedAt ? String(source.generatedAt) : "";
+
+  let text = provider;
+  if (license) {
+    text += ` • ${license}`;
+  }
+  if (generatedAt && generatedAt !== "manual") {
+    text += ` • ${new Date(generatedAt).toLocaleDateString()}`;
+  }
+  if (source.url) {
+    text += ` • ${source.url}`;
+  }
+
+  catalogAttributionEl.textContent = text;
+}
+
 function addCatalogItemToActivePack(item) {
   const active = getActivePack();
   if (!active) {
@@ -465,8 +486,9 @@ function addCatalogItemToActivePack(item) {
   const next = sanitizeCustomReaction({
     label: item.label,
     linkedInType: inferTypeFromCatalogItem(item),
-    assetType: "emoji",
-    emoji: item.emoji
+    assetType: isImageDataUrl(item.assetData) ? "upload" : "emoji",
+    emoji: item.emoji,
+    assetData: item.assetData || ""
   });
 
   if (!next) {
@@ -921,5 +943,6 @@ chrome.storage.onChanged.addListener(async (_changes, areaName) => {
   await migrateAndLoadState();
   toggleAssetModeFields();
   initCatalogCategories();
+  renderCatalogAttribution();
   refreshUI();
 })();

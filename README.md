@@ -13,6 +13,7 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
   - Search
   - Category filtering
   - One-click add to active pack
+  - Source/license attribution footer
 - Pack management:
   - Create Pack
   - Duplicate Pack
@@ -31,6 +32,16 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
 - `chrome.storage.sync`: `hiddenBuiltins`
 
 Backward compatibility migration from old single-list models is automatic.
+
+## Catalog Pipeline CLI
+
+A local internal CLI is included to generate `reaction-catalog.js` from OpenMoji assets.
+
+- Script: `scripts/build-openmoji-catalog.mjs`
+- NPM command: `npm run catalog:openmoji -- --openmoji /path/to/openmoji --out ./reaction-catalog.js --limit 320`
+- Docs: `docs/catalog-pipeline.md`
+
+This avoids direct scraping/copying from Emojipedia while still giving a rich catalog experience.
 
 ## Important limitation
 

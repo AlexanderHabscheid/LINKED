@@ -1,3 +1,10 @@
+const REACTION_CATALOG_SOURCE = {
+  provider: "Built-in",
+  license: "Internal sample set",
+  url: "",
+  generatedAt: "manual"
+};
+
 const REACTION_CATALOG = [
   { emoji: "👍", label: "Strong Yes", category: "Approval", linkedInType: "like", keywords: ["approve", "yes", "agree"] },
   { emoji: "✅", label: "Checked", category: "Approval", linkedInType: "like", keywords: ["done", "verified", "clear"] },
