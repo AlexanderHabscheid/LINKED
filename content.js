@@ -386,6 +386,34 @@ function hideNativeButtonsInTray(tray, buttons) {
   }
 }
 
+function findNativeMappedButtons(tray) {
+  const map = new Map();
+  for (const button of tray.querySelectorAll("button, [role='button']")) {
+    if (!(button instanceof HTMLElement)) continue;
+    const type = reactionTypeFromNode(button);
+    if (!type || map.has(type)) continue;
+    map.set(type, button);
+  }
+  return map;
+}
+
+async function applyMappedReactionFromTray(mappedButton) {
+  if (!(mappedButton instanceof HTMLElement)) return false;
+  if (!mappedButton.isConnected) return false;
+
+  try {
+    mappedButton.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    mappedButton.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+    mappedButton.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    mappedButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    mappedButton.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    mappedButton.click();
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function fallbackApplyReaction(likeButton, type) {
   if (!likeButton) return false;
 
@@ -495,7 +523,7 @@ function mountFloatingTray(likeButton) {
     shell.appendChild(note);
   } else {
     for (const reaction of cachedState.customReactions) {
-      shell.appendChild(createCustomButton(reaction, likeButton));
+      shell.appendChild(createCustomButton(reaction, likeButton, null));
     }
   }
 
@@ -712,7 +740,7 @@ function restoreLikeButtonCustomVisual(likeButton) {
   applySummaryCustomVisual(postRoot, reaction);
 }
 
-function createCustomButton(reaction, likeButton) {
+function createCustomButton(reaction, likeButton, mappedButton) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "linked-native-reaction linked-native-reaction--fallback";
@@ -722,19 +750,35 @@ function createCustomButton(reaction, likeButton) {
   button.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (button.dataset.linkedApplying === "true") return;
+    button.dataset.linkedApplying = "true";
+    button.disabled = true;
 
     const currentLikeButton = resolveLikeButtonFromContext(button, likeButton);
-    if (!(currentLikeButton instanceof HTMLElement)) return;
+    if (!(currentLikeButton instanceof HTMLElement)) {
+      button.disabled = false;
+      button.dataset.linkedApplying = "false";
+      return;
+    }
 
     // Apply visual immediately so native reacted icon never becomes visible for long.
     persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
-    const applied = await fallbackApplyReaction(currentLikeButton, reaction.linkedInType);
+    let applied = false;
+    if (mappedButton instanceof HTMLElement && mappedButton.isConnected) {
+      applied = await applyMappedReactionFromTray(mappedButton);
+    }
+    if (!applied) {
+      applied = await fallbackApplyReaction(currentLikeButton, reaction.linkedInType);
+    }
 
     if (applied) {
       persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
     } else {
       clearPostCustomVisualsForButton(currentLikeButton);
     }
+
+    button.disabled = false;
+    button.dataset.linkedApplying = "false";
   });
 
   return button;
@@ -750,6 +794,7 @@ function mountReplacementTray(tray, likeButton) {
   // Additive mode: keep native tray visible; render custom tray alongside it.
   clearNativeHiding(tray);
   tray.classList.add("linked-native-host");
+  const nativeMap = findNativeMappedButtons(tray);
 
   const shell = document.createElement("div");
   shell.className = "linked-native-shell linked-native-shell--inline";
@@ -761,7 +806,7 @@ function mountReplacementTray(tray, likeButton) {
     shell.appendChild(note);
   } else {
     for (const reaction of cachedState.customReactions) {
-      shell.appendChild(createCustomButton(reaction, likeButton));
+      shell.appendChild(createCustomButton(reaction, likeButton, nativeMap.get(reaction.linkedInType) || null));
     }
   }
 
