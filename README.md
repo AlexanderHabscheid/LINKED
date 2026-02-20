@@ -30,7 +30,7 @@ Chrome extension for LinkedIn that lets users customize the reaction tray direct
 ## Storage model
 
 - `chrome.storage.local`: `reactionPacks`, `activePackId` (supports image/avatar assets)
-- `chrome.storage.sync`: `hiddenBuiltins`
+- `chrome.storage.sync`: `hiddenBuiltins`, `signatureSyncEnabled`, `signatureAutoDraft`
 
 Backward compatibility migration from old single-list models is automatic.
 
@@ -54,6 +54,12 @@ This avoids direct scraping/copying from Emojipedia while still giving a rich ca
 ## Important limitation
 
 This is a UI-level customization. LinkedIn still receives one native reaction type. LINKED does not create new backend LinkedIn reaction types.
+
+## Shared Sync Channels
+
+LINKED supports a serverless signature channel so other LINKED users can resolve custom reactions:
+
+- Signature sync (no backend): emits a `#LINKEDRX:<token>` comment signature payload and parses signatures in post comments.
 
 ## Install (Developer mode)
 

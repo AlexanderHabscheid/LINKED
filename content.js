@@ -1,5 +1,7 @@
 const SYNC_DEFAULTS = {
-  hiddenBuiltins: []
+  hiddenBuiltins: [],
+  signatureSyncEnabled: true,
+  signatureAutoDraft: false
 };
 
 const LOCAL_DEFAULTS = {
@@ -37,7 +39,11 @@ const TYPE_TO_LABEL = Object.fromEntries(REACTIONS.map((item) => [item.type, ite
 
 let cachedState = {
   customReactions: [],
-  hiddenBuiltins: []
+  hiddenBuiltins: [],
+  sync: {
+    signatureSyncEnabled: true,
+    signatureAutoDraft: false
+  }
 };
 let floatingShell = null;
 let floatingLikeButton = null;
@@ -49,9 +55,20 @@ const selectedReactionByPost = new WeakMap();
 const selectedReactionByKey = new Map();
 const warnedMissingOptionTypes = new Set();
 const originalSummaryMarkup = new WeakMap();
+let remoteHydrateTimer = null;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function scheduleRemoteHydration(delay = 260) {
+  if (remoteHydrateTimer) {
+    clearTimeout(remoteHydrateTimer);
+  }
+  remoteHydrateTimer = window.setTimeout(() => {
+    remoteHydrateTimer = null;
+    hydrateRemoteReactionsForVisiblePosts();
+  }, delay);
 }
 
 function normalizeType(type) {
@@ -79,6 +96,51 @@ function isVisible(node) {
 
 function isImageDataUrl(value) {
   return /^data:image\//.test(String(value || ""));
+}
+
+function base64UrlEncode(text) {
+  try {
+    const utf8 = new TextEncoder().encode(String(text || ""));
+    let binary = "";
+    for (const byte of utf8) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function base64UrlDecode(value) {
+  try {
+    const raw = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = raw + "===".slice((raw.length + 3) % 4);
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeRemoteReaction(item) {
+  if (!item || typeof item !== "object") return null;
+  const linkedInType = normalizeType(item.linkedInType || item.type || item.mappedType);
+  if (!linkedInType) return null;
+
+  const label = String(item.label || item.name || TYPE_TO_LABEL[linkedInType] || "").trim().slice(0, 40);
+  const emoji = String(item.emoji || "").trim();
+  const assetData = String(item.assetData || "").trim();
+  const assetType = normalizeAssetType(item.assetType || (assetData ? "upload" : "emoji"));
+
+  return {
+    linkedInType,
+    label: label || TYPE_TO_LABEL[linkedInType],
+    emoji: assetType === "emoji" ? (emoji || "🙂") : "",
+    assetType,
+    assetData: (assetType === "upload" || assetType === "avatar") && isImageDataUrl(assetData) ? assetData : ""
+  };
 }
 
 function sanitizeHiddenBuiltins(items) {
@@ -173,13 +235,25 @@ async function loadAndMigrateState() {
   const customReactions = activePack ? activePack.reactions : [];
 
   const hiddenBuiltins = sanitizeHiddenBuiltins(syncState.hiddenBuiltins);
+  const sync = {
+    signatureSyncEnabled: Boolean(syncState.signatureSyncEnabled),
+    signatureAutoDraft: Boolean(syncState.signatureAutoDraft)
+  };
 
   if (JSON.stringify(reactionPacks) !== JSON.stringify(localState.reactionPacks || []) || activePackId !== String(localState.activePackId || "")) {
     await chrome.storage.local.set({ reactionPacks, activePackId });
   }
 
-  if (JSON.stringify(hiddenBuiltins) !== JSON.stringify(syncState.hiddenBuiltins || [])) {
-    await chrome.storage.sync.set({ hiddenBuiltins });
+  if (
+    JSON.stringify(hiddenBuiltins) !== JSON.stringify(syncState.hiddenBuiltins || [])
+    || sync.signatureSyncEnabled !== Boolean(syncState.signatureSyncEnabled)
+    || sync.signatureAutoDraft !== Boolean(syncState.signatureAutoDraft)
+  ) {
+    await chrome.storage.sync.set({
+      hiddenBuiltins,
+      signatureSyncEnabled: sync.signatureSyncEnabled,
+      signatureAutoDraft: sync.signatureAutoDraft
+    });
   }
 
   if (Array.isArray(syncState.customReactions)) {
@@ -189,7 +263,7 @@ async function loadAndMigrateState() {
     await chrome.storage.local.remove("customReactions");
   }
 
-  cachedState = { customReactions, hiddenBuiltins };
+  cachedState = { customReactions, hiddenBuiltins, sync };
 }
 
 function looksLikeReactionButton(node) {
@@ -604,7 +678,31 @@ function getPostKey(postRoot) {
     if (href) return `href:${href}`;
   }
 
+  const fingerprint = getPostFingerprint(postRoot);
+  if (fingerprint) return `fingerprint:${fingerprint}`;
+
   return null;
+}
+
+function getPostFingerprint(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return "";
+
+  const authorHref = String(
+    postRoot.querySelector("a[href*='/in/'], a[href*='/company/']")?.getAttribute("href") || ""
+  ).trim().toLowerCase();
+
+  const body = String(
+    postRoot.querySelector("[data-test-id='main-feed-activity-card'], .update-components-text, .feed-shared-update-v2__description, .feed-shared-text")?.textContent
+      || postRoot.textContent
+      || ""
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .slice(0, 220);
+
+  if (!authorHref && !body) return "";
+  return `${authorHref}::${body}`;
 }
 
 function getPostRootFromKey(key) {
@@ -628,6 +726,16 @@ function getPostRootFromKey(key) {
     return null;
   }
 
+  if (kind === "fingerprint") {
+    for (const node of document.querySelectorAll(
+      "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+    )) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (getPostFingerprint(node) === value) return node;
+    }
+    return null;
+  }
+
   const selector = `[${kind}="${CSS.escape(value)}"]`;
   const node = document.querySelector(selector);
   if (!(node instanceof HTMLElement)) return null;
@@ -637,20 +745,98 @@ function getPostRootFromKey(key) {
   return postRoot instanceof HTMLElement ? postRoot : null;
 }
 
-function findLikeButtonInPostRoot(postRoot) {
-  if (!(postRoot instanceof HTMLElement)) return null;
-  const actionBar = postRoot.querySelector(
-    "div.feed-shared-social-action-bar, div.social-details-social-actions, div[class*='social-action-bar']"
-  );
-  if (!(actionBar instanceof HTMLElement)) return null;
-  return getLikeButtonInActionBar(actionBar);
+function getPostRoots(root = document) {
+  return Array.from(root.querySelectorAll(
+    "article, .feed-shared-update-v2, .occludable-update, .scaffold-finite-scroll__content"
+  )).filter((node) => node instanceof HTMLElement);
 }
 
-function clearLikeButtonCustomVisual(likeButton) {
-  if (!(likeButton instanceof HTMLElement)) return;
-  const overlay = likeButton.querySelector(":scope > .linked-like-custom-overlay");
-  if (overlay) overlay.remove();
-  likeButton.classList.remove("linked-like-button--custom");
+function createSignatureToken(postKey, reaction) {
+  const payload = {
+    v: 1,
+    k: String(postKey || ""),
+    t: String(reaction.linkedInType || ""),
+    l: String(reaction.label || ""),
+    e: String(reaction.emoji || "")
+  };
+  return `#LINKEDRX:${base64UrlEncode(JSON.stringify(payload))}`;
+}
+
+function parseSignatureToken(token) {
+  const decoded = base64UrlDecode(token);
+  if (!decoded) return null;
+  try {
+    const payload = JSON.parse(decoded);
+    const reaction = sanitizeRemoteReaction({
+      linkedInType: payload.t,
+      label: payload.l,
+      emoji: payload.e,
+      assetType: "emoji"
+    });
+    if (!reaction) return null;
+    return {
+      postKey: String(payload.k || "").trim(),
+      reaction
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractSignatureReactionsFromPost(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return [];
+  const text = postRoot.innerText || "";
+  if (!text.includes("#LINKEDRX:")) return [];
+
+  const out = [];
+  const matches = text.matchAll(/#LINKEDRX:([A-Za-z0-9_-]{12,})/g);
+  for (const match of matches) {
+    const parsed = parseSignatureToken(match[1]);
+    if (!parsed) continue;
+    out.push(parsed);
+  }
+  return out;
+}
+
+async function ensureCommentEditor(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return null;
+
+  const findEditor = () => postRoot.querySelector(
+    "[contenteditable='true'][role='textbox'], [contenteditable='true'][data-placeholder*='comment' i]"
+  );
+
+  let editor = findEditor();
+  if (editor instanceof HTMLElement) return editor;
+
+  const commentTrigger = Array.from(postRoot.querySelectorAll("button, [role='button']")).find((node) => {
+    const label = textOf(node).toLowerCase();
+    return label.includes("comment");
+  });
+  if (commentTrigger instanceof HTMLElement) {
+    commentTrigger.click();
+  }
+
+  for (let i = 0; i < 8; i += 1) {
+    await wait(90);
+    editor = findEditor();
+    if (editor instanceof HTMLElement) return editor;
+  }
+  return null;
+}
+
+async function tryDraftSignatureComment(postRoot, signature) {
+  if (!cachedState.sync.signatureAutoDraft) return;
+  const editor = await ensureCommentEditor(postRoot);
+  if (!(editor instanceof HTMLElement)) return;
+
+  const existing = (editor.textContent || "").trim();
+  if (existing.includes(signature)) return;
+
+  const next = `${existing}${existing ? " " : ""}${signature}`.trim();
+  editor.focus();
+  document.execCommand("selectAll", false);
+  document.execCommand("insertText", false, next);
+  editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: signature }));
 }
 
 function clearSummaryCustomVisual(postRoot) {
@@ -714,23 +900,29 @@ function applySummaryCustomVisual(postRoot, reaction) {
   host.prepend(marker);
 }
 
-function clearPostCustomVisualsForButton(likeButton) {
-  if (!(likeButton instanceof HTMLElement)) return;
-  clearLikeButtonCustomVisual(likeButton);
-  clearSummaryCustomVisual(getPostRootForButton(likeButton));
+function clearActionBarCustomBadge(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return;
+  for (const badge of postRoot.querySelectorAll(".linked-actionbar-custom-badge")) {
+    badge.remove();
+  }
 }
 
-function applyLikeButtonCustomVisual(likeButton, reaction) {
-  if (!(likeButton instanceof HTMLElement) || !reaction) return;
-  clearLikeButtonCustomVisual(likeButton);
+function applyActionBarCustomBadge(postRoot, reaction) {
+  if (!(postRoot instanceof HTMLElement) || !reaction) return;
+  const actionBar = postRoot.querySelector(
+    "div.feed-shared-social-action-bar, div.social-details-social-actions, div[class*='social-action-bar']"
+  );
+  if (!(actionBar instanceof HTMLElement)) return;
 
-  const overlay = document.createElement("span");
-  overlay.className = "linked-like-custom-overlay";
-  overlay.setAttribute("aria-hidden", "true");
+  clearActionBarCustomBadge(postRoot);
+
+  const badge = document.createElement("span");
+  badge.className = "linked-actionbar-custom-badge";
+  badge.title = `Selected custom reaction: ${reaction.label}`;
+  badge.setAttribute("aria-label", `Selected custom reaction: ${reaction.label}`);
 
   const visual = document.createElement("span");
-  visual.className = "linked-custom-visual linked-custom-visual--like-button";
-
+  visual.className = "linked-custom-visual linked-custom-visual--actionbar";
   if ((reaction.assetType === "upload" || reaction.assetType === "avatar") && isImageDataUrl(reaction.assetData)) {
     const img = document.createElement("img");
     img.src = reaction.assetData;
@@ -741,18 +933,33 @@ function applyLikeButtonCustomVisual(likeButton, reaction) {
     visual.textContent = reaction.emoji || "🙂";
   }
 
-  overlay.appendChild(visual);
-  likeButton.classList.add("linked-like-button--custom");
-  likeButton.appendChild(overlay);
+  const label = document.createElement("span");
+  label.className = "linked-actionbar-custom-text";
+  label.textContent = reaction.label;
+
+  badge.appendChild(visual);
+  badge.appendChild(label);
+  actionBar.prepend(badge);
 }
 
-function persistAndApplyLikeButtonCustomVisual(likeButton, reaction) {
+function clearPostCustomVisualsForButton(likeButton) {
+  if (!(likeButton instanceof HTMLElement)) return;
+  const postRoot = getPostRootForButton(likeButton);
+  clearActionBarCustomBadge(postRoot);
+  clearSummaryCustomVisual(postRoot);
+}
+
+async function persistAndApplyLikeButtonCustomVisual(likeButton, reaction) {
   if (!(likeButton instanceof HTMLElement) || !reaction) return;
   const postRoot = getPostRootForButton(likeButton);
   const postKey = getPostKey(postRoot);
   if (postRoot) {
     selectedReactionByPost.set(postRoot, reaction);
     if (postKey) selectedReactionByKey.set(postKey, reaction);
+    if (cachedState.sync.signatureSyncEnabled && postKey) {
+      const signature = createSignatureToken(postKey, reaction);
+      await tryDraftSignatureComment(postRoot, signature);
+    }
   }
 
   const applyToCurrentPostLikeButton = () => {
@@ -761,10 +968,8 @@ function persistAndApplyLikeButtonCustomVisual(likeButton, reaction) {
       currentPostRoot = getPostRootFromKey(postKey);
     }
 
-    const currentLikeButton = findLikeButtonInPostRoot(currentPostRoot);
-    if (!(currentLikeButton instanceof HTMLElement)) return;
-
-    applyLikeButtonCustomVisual(currentLikeButton, reaction);
+    if (!(currentPostRoot instanceof HTMLElement)) return;
+    applyActionBarCustomBadge(currentPostRoot, reaction);
     applySummaryCustomVisual(currentPostRoot, reaction);
   };
 
@@ -786,8 +991,38 @@ function restoreLikeButtonCustomVisual(likeButton) {
     if (key) reaction = selectedReactionByKey.get(key) || null;
   }
   if (!reaction) return;
-  applyLikeButtonCustomVisual(likeButton, reaction);
+  applyActionBarCustomBadge(postRoot, reaction);
   applySummaryCustomVisual(postRoot, reaction);
+}
+
+function applyBestKnownReactionForPost(postRoot) {
+  if (!(postRoot instanceof HTMLElement)) return;
+  const postKey = getPostKey(postRoot);
+
+  let reaction = selectedReactionByPost.get(postRoot) || null;
+  if (!reaction && postKey) {
+    reaction = selectedReactionByKey.get(postKey) || null;
+  }
+  if (!reaction) return;
+
+  applyActionBarCustomBadge(postRoot, reaction);
+  applySummaryCustomVisual(postRoot, reaction);
+}
+
+async function hydrateRemoteReactionsForVisiblePosts() {
+  const posts = getPostRoots(document);
+  for (const postRoot of posts) {
+    const postKey = getPostKey(postRoot);
+    if (!postKey) continue;
+
+    for (const parsed of extractSignatureReactionsFromPost(postRoot)) {
+      if (parsed.postKey && parsed.postKey !== postKey) continue;
+      selectedReactionByKey.set(postKey, parsed.reaction);
+      break;
+    }
+
+    applyBestKnownReactionForPost(postRoot);
+  }
 }
 
 function createCustomButton(reaction, likeButton, mappedButton) {
@@ -812,7 +1047,7 @@ function createCustomButton(reaction, likeButton, mappedButton) {
     }
 
     // Apply visual immediately so native reacted icon never becomes visible for long.
-    persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
+    await persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
     let applied = false;
     if (mappedButton instanceof HTMLElement && mappedButton.isConnected) {
       applied = await applyMappedReactionFromTray(mappedButton);
@@ -822,7 +1057,7 @@ function createCustomButton(reaction, likeButton, mappedButton) {
     }
 
     if (applied) {
-      persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
+      await persistAndApplyLikeButtonCustomVisual(currentLikeButton, reaction);
     } else {
       clearPostCustomVisualsForButton(currentLikeButton);
     }
@@ -1015,6 +1250,7 @@ async function refreshAll() {
   refreshMountedTrays();
   applyHiddenBuiltins();
   scrubInvalidExtensionResources();
+  scheduleRemoteHydration(40);
 }
 
 chrome.storage.onChanged.addListener(async (_changes, areaName) => {
@@ -1033,6 +1269,7 @@ const observer = new MutationObserver(() => {
   }
   applyHiddenBuiltins();
   scrubInvalidExtensionResources();
+  scheduleRemoteHydration(220);
   if (floatingShell && floatingLikeButton) {
     positionFloatingTray(floatingLikeButton);
   }

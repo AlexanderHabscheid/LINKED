@@ -1,5 +1,7 @@
 const SYNC_DEFAULTS = {
-  hiddenBuiltins: []
+  hiddenBuiltins: [],
+  signatureSyncEnabled: true,
+  signatureAutoDraft: false
 };
 
 const LOCAL_DEFAULTS = {
@@ -58,6 +60,8 @@ const previewTrayEl = document.getElementById("previewTray");
 const customListEl = document.getElementById("customList");
 const builtinTogglesEl = document.getElementById("builtinToggles");
 const feedbackEl = document.getElementById("formFeedback");
+const signatureSyncEnabledEl = document.getElementById("signatureSyncEnabled");
+const signatureAutoDraftEl = document.getElementById("signatureAutoDraft");
 
 let uploadDataUrl = "";
 let catalogViewKind = "sticker";
@@ -93,7 +97,11 @@ let shortcodeToEmoji = null;
 let appState = {
   reactionPacks: [],
   activePackId: "",
-  hiddenBuiltins: []
+  hiddenBuiltins: [],
+  sync: {
+    signatureSyncEnabled: true,
+    signatureAutoDraft: false
+  }
 };
 
 function normalizeType(type) {
@@ -259,7 +267,11 @@ async function persistLocal() {
 }
 
 async function persistSyncHidden() {
-  await chrome.storage.sync.set({ hiddenBuiltins: appState.hiddenBuiltins });
+  await chrome.storage.sync.set({
+    hiddenBuiltins: appState.hiddenBuiltins,
+    signatureSyncEnabled: Boolean(appState.sync.signatureSyncEnabled),
+    signatureAutoDraft: Boolean(appState.sync.signatureAutoDraft)
+  });
 }
 
 async function migrateAndLoadState() {
@@ -282,12 +294,16 @@ async function migrateAndLoadState() {
   }
 
   const hiddenBuiltins = sanitizeHiddenBuiltins(syncState.hiddenBuiltins);
+  const sync = {
+    signatureSyncEnabled: Boolean(syncState.signatureSyncEnabled),
+    signatureAutoDraft: Boolean(syncState.signatureAutoDraft)
+  };
   let activePackId = String(localState.activePackId || "").trim();
   if (!packs.some((pack) => pack.id === activePackId)) {
     activePackId = packs[0].id;
   }
 
-  appState = { reactionPacks: packs, activePackId, hiddenBuiltins };
+  appState = { reactionPacks: packs, activePackId, hiddenBuiltins, sync };
 
   await persistLocal();
   await persistSyncHidden();
@@ -745,6 +761,8 @@ function refreshUI() {
   renderCustomList(activePack ? activePack.reactions : []);
   renderPreviewTray(activePack ? activePack.reactions : [], draftFromInput());
   renderCatalog();
+  signatureSyncEnabledEl.checked = Boolean(appState.sync.signatureSyncEnabled);
+  signatureAutoDraftEl.checked = Boolean(appState.sync.signatureAutoDraft);
 }
 
 function resetCreatorInputs() {
@@ -787,6 +805,12 @@ async function toggleBuiltin(type, shouldHide) {
   if (shouldHide) set.add(type);
   else set.delete(type);
   appState.hiddenBuiltins = [...set];
+  await persistSyncHidden();
+}
+
+async function persistSyncOptionsFromUi() {
+  appState.sync.signatureSyncEnabled = Boolean(signatureSyncEnabledEl.checked);
+  appState.sync.signatureAutoDraft = Boolean(signatureAutoDraftEl.checked);
   await persistSyncHidden();
 }
 
@@ -887,6 +911,15 @@ for (const el of [labelEl, emojiEl, linkedInTypeEl, avatarInitialsEl, avatarMood
       setFeedback("");
     }
     refreshUI();
+  });
+}
+
+for (const el of [
+  signatureSyncEnabledEl,
+  signatureAutoDraftEl
+]) {
+  el.addEventListener("change", async () => {
+    await persistSyncOptionsFromUi();
   });
 }
 
